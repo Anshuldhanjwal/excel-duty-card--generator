@@ -83,14 +83,23 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
     let dayMobileColIndex = 4;
     let nightOfficerColIndex = 5;
     let nightMobileColIndex = 6;
-    let dataStartRow = 3;
 
     let dayShiftTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
     let nightShiftTime = 'रात्री 20.00 बजे से 08.00 बजे तक';
 
-    // Dynamic headers identification
-    for (let r = 0; r < Math.min(5, rows.length); r++) {
+    // Find start of data first so we know where the headers end
+    let dataStartRow = 3;
+    for (let r = 0; r < rows.length; r++) {
+      const rowText = rows[r].join(' ');
+      if (rowText.includes('कर्मचारी') || rowText.includes('मो0नं0') || rowText.includes('मोबाइल')) {
+        dataStartRow = r + 1;
+      }
+    }
+
+    // Dynamic headers identification - strictly scan ONLY header rows (before dataStartRow)
+    for (let r = 0; r < dataStartRow; r++) {
       const row = rows[r];
+      if (!row) continue;
       for (let c = 0; c < row.length; c++) {
         const val = String(row[c] || '').trim();
         if (val.includes('थाना')) {
@@ -112,14 +121,6 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
           nightShiftTime = val;
           if (c + 1 < row.length) nightMobileColIndex = c + 1;
         }
-      }
-    }
-
-    // Find start of data
-    for (let r = 0; r < rows.length; r++) {
-      const rowText = rows[r].join(' ');
-      if (rowText.includes('कर्मचारी') || rowText.includes('मो0नं0') || rowText.includes('मोबाइल')) {
-        dataStartRow = r + 1;
       }
     }
 
