@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { ExtractionResult, OfficerRecord } from '../../types';
 import { DutyCard } from '../../components/DutyCard';
 import { EditCardModal } from '../../components/EditCardModal';
-
 import { krutidevToUnicode } from '../../lib/krutidevToUnicode';
 
 function cleanAndConvert(val: any): string {
@@ -14,7 +13,16 @@ function cleanAndConvert(val: any): string {
   if (/[\u0900-\u097F]/.test(str)) {
     return str;
   }
+  // Protect English codes, abbreviations, numbers from Krutidev conversion
   if (/[a-zA-Z]/.test(str)) {
+    const clean = str.trim();
+    if (/^[A-Z0-9\s\-_./()&]+$/.test(clean) || 
+        clean.toLowerCase().includes('prv') || 
+        clean.toLowerCase().includes('up') || 
+        clean.toLowerCase().includes('sector') ||
+        clean.toLowerCase().includes('zone')) {
+      return clean;
+    }
     return krutidevToUnicode(str);
   }
   return str;
@@ -51,6 +59,11 @@ export default function CardsPage() {
   const [editingRecord, setEditingRecord] = useState<OfficerRecord | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [printLayout, setPrintLayout] = useState<'a5' | 'a4'>('a5');
+  const [isPrinting, setIsPrinting] = useState(false);
+  
+  const cardsPerPage = 50;
   const router = useRouter();
 
   useEffect(() => {
@@ -68,6 +81,20 @@ export default function CardsPage() {
     }
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      setIsPrinting(false);
+      document.body.classList.remove('printing-all', 'printing-single', 'print-layout-a4-double');
+      const styleEl = document.getElementById('dynamic-print-page-style');
+      if (styleEl) styleEl.remove();
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
 
   if (!data) {
     return (
@@ -112,13 +139,45 @@ export default function CardsPage() {
   };
 
   const handlePrintAll = () => {
-    document.body.classList.remove('printing-single');
-    document.body.classList.add('printing-all');
-    window.print();
+    setIsPrinting(true);
+    // Let the DOM update with all cards before calling print dialog
+    setTimeout(() => {
+      const styleId = 'dynamic-print-page-style';
+      let styleEl = document.getElementById(styleId);
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+      
+      if (printLayout === 'a4') {
+        styleEl.innerHTML = `@page { size: A4 portrait; margin: 10mm; }`;
+        document.body.classList.add('print-layout-a4-double');
+      } else {
+        styleEl.innerHTML = `@page { size: A5 landscape; margin: 8mm; }`;
+        document.body.classList.remove('print-layout-a4-double');
+      }
+
+      document.body.classList.remove('printing-single');
+      document.body.classList.add('printing-all');
+      
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    }, 300);
   };
 
   const handlePrintSingle = (id: string) => {
-    // Clear any previous print classes on elements
+    // Inject style tag to force A5 landscape for single cards
+    const styleId = 'dynamic-print-page-style';
+    let styleEl = document.getElementById(styleId);
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
+    }
+    styleEl.innerHTML = `@page { size: A5 landscape; margin: 8mm; }`;
+
     document.querySelectorAll('.printing-now').forEach((el) => {
       el.classList.remove('printing-now');
     });
@@ -128,9 +187,12 @@ export default function CardsPage() {
       target.classList.add('printing-now');
     }
 
-    document.body.classList.remove('printing-all');
+    document.body.classList.remove('printing-all', 'print-layout-a4-double');
     document.body.classList.add('printing-single');
-    window.print();
+    
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   // Filter records based on search term (match thana, place, officer name, or type)
@@ -144,6 +206,10 @@ export default function CardsPage() {
     );
   });
 
+  const totalPages = Math.ceil(filteredRecords.length / cardsPerPage);
+  const startIndex = (currentPage - 1) * cardsPerPage;
+  const paginatedRecords = filteredRecords.slice(startIndex, startIndex + cardsPerPage);
+
   return (
     <main className="min-h-screen bg-slate-900 text-white p-6 print:bg-white print:text-black print:p-0">
       {/* HEADER CONTROLS (Hidden in Print) */}
@@ -155,63 +221,37 @@ export default function CardsPage() {
               कुल {data.records.length} ड्यूटी समूह पाए गए ({filteredRecords.length} प्रदर्शित)
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            {/* Print Layout Selector */}
+            <div className="flex items-center gap-2 bg-slate-900/60 px-3 py-2 rounded-xl border border-slate-800">
+              <span className="text-xs text-slate-400 font-semibold uppercase">प्रिंट लेआउट:</span>
+              <select
+                value={printLayout}
+                onChange={(e) => setPrintLayout(e.target.value as 'a5' | 'a4')}
+                className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
+              >
+                <option value="a5" className="bg-slate-950 text-white">1 कार्ड/पेज (A5 Landscape)</option>
+                <option value="a4" className="bg-slate-950 text-white">2 कार्ड/पेज (A4 Portrait)</option>
+              </select>
+            </div>
+            
             <button
               onClick={() => router.push('/upload')}
-              className="px-4 py-2 border border-slate-700 hover:bg-slate-800 rounded-xl text-sm font-semibold transition-colors"
+              className="px-4 py-2 border border-slate-700 hover:bg-slate-800 rounded-xl text-sm font-semibold transition-colors cursor-pointer"
             >
               &larr; नया अपलोड
             </button>
+            
             <button
               onClick={handlePrintAll}
               disabled={filteredRecords.length === 0}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-bold shadow-lg transition-colors flex items-center gap-2"
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-sm font-bold shadow-lg transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
               </svg>
-              सभी कार्ड प्रिंट करें (Print All)
+              सभी प्रिंट करें (Print All)
             </button>
-          </div>
-        </div>
-
-        {/* Global Event Metadata Edit Form */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
-          <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">कार्यक्रम का नाम</label>
-            <input
-              type="text"
-              value={data.eventName}
-              onChange={(e) => updateEventField('eventName', e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">जनपद</label>
-            <input
-              type="text"
-              value={data.district}
-              onChange={(e) => updateEventField('district', e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">ड्यूटी प्रारंभ दिनांक</label>
-            <input
-              type="text"
-              value={data.dutyDateFrom}
-              onChange={(e) => updateEventField('dutyDateFrom', e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">ड्यूटी समाप्ति दिनांक</label>
-            <input
-              type="text"
-              value={data.dutyDateTo}
-              onChange={(e) => updateEventField('dutyDateTo', e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-            />
           </div>
         </div>
 
@@ -232,14 +272,14 @@ export default function CardsPage() {
         </div>
       </div>
 
-      {/* CARDS LIST CONTAINER */}
-      <div className="max-w-6xl mx-auto space-y-12 pb-16 print:space-y-0 print:pb-0">
+      {/* CARDS LIST CONTAINER (Screen View: Paginated) */}
+      <div className="max-w-6xl mx-auto space-y-12 pb-8 print:hidden">
         {filteredRecords.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 print:hidden">
+          <div className="text-center py-12 text-slate-500">
             कोई कार्ड मेल नहीं खाता।
           </div>
         ) : (
-          filteredRecords.map((record) => (
+          paginatedRecords.map((record) => (
             <div
               key={record.id}
               className="card-container-wrapper bg-slate-950/20 border border-slate-800/40 p-6 rounded-2xl space-y-4 print:p-0 print:border-none print:bg-transparent"
@@ -248,7 +288,8 @@ export default function CardsPage() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900/40 px-4 py-3 rounded-xl border border-slate-800 print:hidden">
                 <div className="text-xs text-slate-400">
                   <span className="font-semibold text-slate-200">स्थान:</span> {record.dutyPlace} |{' '}
-                  <span className="font-semibold text-slate-200">थाना:</span> {record.thanaArea}
+                  <span className="font-semibold text-slate-200">थाना:</span> {record.thanaArea} |{' '}
+                  <span className="font-semibold text-slate-200">श्रेणी:</span> {record.dutyType}
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button
@@ -256,7 +297,7 @@ export default function CardsPage() {
                       setEditingRecord(record);
                       setIsEditModalOpen(true);
                     }}
-                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -265,7 +306,7 @@ export default function CardsPage() {
                   </button>
                   <button
                     onClick={() => handlePrintSingle(record.id)}
-                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
@@ -274,7 +315,7 @@ export default function CardsPage() {
                   </button>
                   <button
                     onClick={() => handleDeleteRecord(record.id)}
-                    className="px-2 py-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800/60 rounded-lg transition-colors flex items-center justify-center"
+                    className="px-2 py-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800/60 rounded-lg transition-colors flex items-center justify-center cursor-pointer"
                     title="हटाएं"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -298,6 +339,53 @@ export default function CardsPage() {
           ))
         )}
       </div>
+
+      {/* PAGINATION NAVIGATION CONTROL (Hidden in Print) */}
+      <div className="max-w-6xl mx-auto mb-16 print:hidden">
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-950/40 border border-slate-800 p-4 rounded-2xl">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed"
+            >
+              &larr; पिछला (Prev)
+            </button>
+            <span className="text-sm text-slate-400 text-center">
+              पृष्ठ <span className="font-semibold text-white">{currentPage}</span> / {totalPages} (कुल {filteredRecords.length} कार्ड्स)
+            </span>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed"
+            >
+              अगला (Next) &rarr;
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* PRINT-ONLY CONTAINER (Renders all cards on demand during window print, completely hidden on screen) */}
+      {isPrinting && (
+        <div className="hidden print:block print:space-y-0">
+          {filteredRecords.map((record) => (
+            <div
+              key={record.id}
+              className="card-container-wrapper print:block"
+            >
+              <div id={`card-${record.id}`} className="duty-card-wrapper bg-white p-0">
+                <DutyCard
+                  record={record}
+                  eventName={data.eventName}
+                  district={data.district}
+                  dutyDateFrom={data.dutyDateFrom}
+                  dutyDateTo={data.dutyDateTo}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* EDIT MODAL */}
       {editingRecord && (

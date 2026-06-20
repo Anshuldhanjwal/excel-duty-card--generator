@@ -3,8 +3,49 @@ import type { OfficerRecord, ExtractionResult } from '../types';
 import { krutidevToUnicode } from './krutidevToUnicode';
 
 /**
- * Normalizes text. If it is Krutidev (ASCII layout), converts to Unicode.
- * If it is already Unicode Devanagari, keeps it untouched.
+ * Checks if a string is likely standard English text or abbreviations (like PRV, UP 32, QRT, etc.)
+ * to protect it from being parsed as legacy Krutidev font.
+ */
+function isLikelyEnglish(str: string): boolean {
+  const clean = str.trim();
+  if (!clean) return true;
+
+  // 1. Pure numbers and punctuation
+  if (/^[0-9\s\-_./()+,:]*$/.test(clean)) return true;
+
+  // 2. Pure uppercase English codes, numbers, abbreviations, spaces
+  if (/^[A-Z0-9\s\-_./()&]+$/.test(clean)) return true;
+
+  // 3. Check for specific known English words/phrases (case insensitive)
+  const words = clean.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.length > 0) {
+    const englishWords = new Set([
+      'sector', 'zone', 'duty', 'card', 'police', 'mobile', 'name', 'time', 
+      'shift', 'date', 'from', 'to', 'fire', 'checking', 'team', 'route', 
+      'ahar', 'mandir', 'picket', 'cut', 'dress', 'temp', 'op', 'extra', 
+      'fantom', 'booklet', 'final', 'prv', 'qrt', 'prv112', 'up112', 'gps',
+      'sheet', 'page', 'id', 'record', 'officer', 'supporting', 'magistrate'
+    ]);
+    
+    const allEnglish = words.every(w => {
+      // If it is a number
+      if (/^\d+$/.test(w)) return true;
+      // Very short helper words and common acronyms
+      if (w.length <= 3 && /^[a-z]+$/.test(w)) {
+        if (new Set(['in', 'at', 'on', 'of', 'up', 'by', 'co', 'si', 'hc', 'pc', 'gp', 'hg', 'rt', 'nh', 'sh']).has(w)) return true;
+      }
+      return englishWords.has(w);
+    });
+    if (allEnglish) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Normalizes text. If it is already Unicode Devanagari (Mangal), keeps it untouched.
+ * If it is English text or abbreviations, keeps it untouched.
+ * Otherwise, translates from legacy Krutidev layout to Unicode.
  */
 function cleanAndConvert(val: any): string {
   const str = String(val === null || val === undefined ? '' : val).trim();
@@ -13,18 +54,19 @@ function cleanAndConvert(val: any): string {
   if (/[\u0900-\u097F]/.test(str)) {
     return str;
   }
-  // If it has English alphabetic characters, it is likely Krutidev legacy text.
-  if (/[a-zA-Z]/.test(str)) {
-    return krutidevToUnicode(str);
+  // If it is standard English words/abbreviations, do not convert.
+  if (isLikelyEnglish(str)) {
+    return str;
   }
-  return str;
+  // Convert Krutidev layout text.
+  return krutidevToUnicode(str);
 }
 
 /**
  * Removes administrative suffix text from event name to keep it clean.
  */
 function cleanEventName(name: string): string {
-  if (!name) return 'ड्यूटी कार्ड';
+  if (!name) return 'काँवड़ यात्रा-2026';
   let cleaned = name.trim();
   
   // Truncate from keywords
@@ -38,120 +80,148 @@ function cleanEventName(name: string): string {
   // Clean up leading/trailing punctuation and spaces
   cleaned = cleaned.replace(/^[-\s,/—–]+|[-\s,/—–]+$/g, '');
 
-  return cleaned.trim() || 'ड्यूटी कार्ड';
+  return cleaned.trim() || 'काँवड़ यात्रा-2026';
 }
 
 /**
- * Universal Excel parser for Police Duty Card generation.
- * 
- * Automatically detects three formats:
- * - FORMAT A (Barrier-style, side-by-side day/night shifts, 6-8 columns)
- * - FORMAT B (Zonal/Sector-style, vertically interleaved shifts, >= 9 columns)
- * - FORMAT C (Stacked pre-formatted card layouts, < 6 columns)
+ * Universal Excel parser that loops through all sheets in a workbook
+ * and dynamically extracts police duty cards from each sheet.
  */
 export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
 
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
+  const allRecords: OfficerRecord[] = [];
 
-  const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: '',
-    blankrows: false,
-  });
-
-  if (rawRows.length === 0) {
-    throw new Error('Excel फाइल खाली है।');
-  }
-
-  // Convert the entire sheet to Unicode first
-  const rows = rawRows.map(row => row.map(cleanAndConvert));
-
-  // Determine file format by column count
-  const maxCols = Math.max(...rows.map((r) => r.length));
-
-  // Extract event name (from row 0, col 0 or first non-empty cell in first few rows)
-  let eventName = 'ड्यूटी कार्ड';
-  for (let r = 0; r < Math.min(3, rows.length); r++) {
-    const firstCell = String(rows[r]?.[0] || '').trim();
-    if (firstCell && firstCell.length > 5 && !firstCell.includes("थाना") && !firstCell.includes("क्र")) {
-      eventName = firstCell.split('\n')[0].trim();
-      break;
-    }
-  }
-
-  // Extract dates
-  let dutyDateFrom = '';
-  let dutyDateTo = '';
-  const dateRe = /(\d{1,2}[-./]\d{1,2}[-./]\d{4})/g;
-  for (const row of rows) {
-    const text = row.join(' ');
-    const dates = text.match(dateRe);
-    if (dates && dates.length >= 1) {
-      dutyDateFrom = dates[0];
-      if (dates.length >= 2) dutyDateTo = dates[1];
-      break;
-    }
-  }
-
-  // Extract district
+  // Default global metadata
+  let eventName = 'काँवड़ यात्रा-2026';
   let district = 'बुलन्दशहर';
-  for (let i = 0; i < Math.min(5, rows.length); i++) {
-    const text = rows[i].join(' ');
-    if (text.includes('जनपद')) {
-      const m = text.match(/जनपद\s*[-—–]*\s*(\S+)/) || text.match(/जनपद\s+(\S+)/);
-      if (m) {
-        district = m[1].replace(/[^\u0900-\u097F]/g, '').trim() || district;
+  let dutyDateFrom = '01.0.2026';
+  let dutyDateTo = '13.08.2026';
+  
+  let foundMeta = false;
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+      blankrows: false,
+    });
+
+    if (rawRows.length === 0) continue;
+
+    // Convert the entire sheet to Unicode first (translating Krutidev where appropriate)
+    const rows = rawRows.map(row => row.map(cleanAndConvert));
+
+    // Try to extract event metadata from the first sheet containing typical title text
+    if (!foundMeta) {
+      for (let r = 0; r < Math.min(3, rows.length); r++) {
+        const firstCell = String(rows[r]?.[0] || '').trim();
+        if (firstCell && firstCell.length > 5 && !firstCell.includes("थाना") && !firstCell.includes("क्र")) {
+          eventName = firstCell.split('\n')[0].trim();
+          foundMeta = true;
+          break;
+        }
       }
     }
+
+    // Try to extract dates if not already found
+    const dateRe = /(\d{1,2}[-./]\d{1,2}[-./]\d{4})/g;
+    for (const row of rows) {
+      const text = row.join(' ');
+      const dates = text.match(dateRe);
+      if (dates && dates.length >= 1) {
+        dutyDateFrom = dates[0];
+        if (dates.length >= 2) dutyDateTo = dates[1];
+        break;
+      }
+    }
+
+    // Try to extract district if not already found
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const text = rows[i].join(' ');
+      if (text.includes('जनपद')) {
+        const m = text.match(/जनपद\s*[-—–]*\s*(\S+)/) || text.match(/जनपद\s+(\S+)/);
+        if (m) {
+          district = m[1].replace(/[^\u0900-\u097F]/g, '').trim() || district;
+        }
+      }
+    }
+
+    // Dynamically parse the sheet based on detected layout
+    const sheetRecords = parseSheetRows(rows, sheetName);
+    allRecords.push(...sheetRecords);
   }
 
-  let result: ExtractionResult;
-  if (maxCols >= 9) {
-    // ========== FORMAT B: Zonal/Sector (11-col) ==========
-    result = parseFormatB(rows, eventName, district, dutyDateFrom, dutyDateTo);
-  } else if (maxCols >= 6) {
-    // ========== FORMAT A: Barrier (7-col) ==========
-    result = parseFormatA(rows, eventName, district, dutyDateFrom, dutyDateTo);
-  } else {
-    // ========== FORMAT C: Stacked Card Layout (4-col) ==========
-    result = parseFormatC(rows, eventName, district, dutyDateFrom, dutyDateTo);
-  }
+  // Final cleanup of global metadata
+  eventName = cleanEventName(eventName);
+  district = district.replace(/जनपद/g, '').replace(/[-—–\s]+/g, '').trim();
+  dutyDateFrom = (dutyDateFrom || '').replace(/[-/]/g, '.');
+  dutyDateTo = (dutyDateTo || '').replace(/[-/]/g, '.');
 
-  // Clean eventName and district across all generated outputs
-  result.eventName = cleanEventName(result.eventName);
-  result.district = result.district.replace(/जनपद/g, '').replace(/[-—–\s]+/g, '').trim();
-  result.dutyDateFrom = (result.dutyDateFrom || '').replace(/[-/]/g, '.');
-  result.dutyDateTo = (result.dutyDateTo || '').replace(/[-/]/g, '.');
-
-  return result;
+  return { eventName, district, dutyDateFrom, dutyDateTo, records: allRecords };
 }
 
-// ────────────────────────────────────────────────────────────
-//  FORMAT A: Barrier-style (6-8 columns)
-// ────────────────────────────────────────────────────────────
-function parseFormatA(
-  rows: any[][],
-  eventName: string,
-  district: string,
-  dutyDateFrom: string,
-  dutyDateTo: string
-): ExtractionResult {
+/**
+ * Route sheet parsing to appropriate layout parser based on cell keyword detection.
+ */
+function parseSheetRows(rows: any[][], sheetName: string): OfficerRecord[] {
+  const maxCols = Math.max(...rows.map(r => r.length));
+  if (maxCols === 0) return [];
+
+  // 1. Detect Day/Night split layout (Type 1)
+  let hasDay = false;
+  let hasNight = false;
+  for (let r = 0; r < Math.min(3, rows.length); r++) {
+    const text = rows[r].join(' ').toLowerCase();
+    if (text.includes('सुबह') || text.includes('lqcg') || text.includes(' दिन ') || text.includes('izkr%') || text.includes('पाली 1') || text.includes('izFke') || text.includes('पाली-1') || text.includes('पाली—1')) {
+      hasDay = true;
+    }
+    if (text.includes('रात्रि') || text.includes('raatri') || text.includes('jk=h') || text.includes(' रात ') || text.includes('f}rh;') || text.includes('पाली 2') || text.includes('पाली-2') || text.includes('पाली—2')) {
+      hasNight = true;
+    }
+  }
+
+  if (hasDay && hasNight) {
+    return parseDayNightSheet(rows, sheetName);
+  }
+
+  // 2. Detect Zonal/Sector layout (Type 2)
+  let hasZonal = false;
+  for (let r = 0; r < Math.min(3, rows.length); r++) {
+    const text = rows[r].join(' ').toLowerCase();
+    if (text.includes('जोन') || text.includes('tksu') || text.includes('मजिस्ट्रेट') || text.includes('eftLVªsV') || text.includes('सेक्टर') || text.includes('lsDVj')) {
+      hasZonal = true;
+      break;
+    }
+  }
+
+  if (hasZonal && maxCols >= 9) {
+    return parseZonalSectorSheet(rows, sheetName);
+  }
+
+  // 3. Fallback to Simple List layout (Type 3)
+  return parseSimpleListSheet(rows, sheetName);
+}
+
+/**
+ * Type 1: Day/Night Split Sheet Parser
+ */
+function parseDayNightSheet(rows: any[][], sheetName: string): OfficerRecord[] {
   let headerIndex = -1;
   let bestHeaderScore = 0;
 
-  for (let r = 0; r < Math.min(10, rows.length); r++) {
+  for (let r = 0; r < Math.min(8, rows.length); r++) {
     const row = rows[r];
     let score = 0;
     for (const cell of row) {
-      if (cell.includes("थाना")) score += 2;
-      if (cell.includes("बैरियर") || cell.includes("स्थान")) score += 2;
-      if (cell.includes("कर्मचारी") || cell.includes("नाम")) score += 2;
-      if (cell.includes("मो0") || cell.includes("मोबाइल") || cell.includes("मो०")) score += 2;
-      if (cell.includes("क्र0") || cell.includes("सं0") || cell.includes("क0सं0") || cell.includes("क्र०")) score += 1;
-      if (cell.includes("सुबह") || cell.includes("रात्री") || cell.includes("रात") || cell.includes("दिन")) score += 1;
+      const c = cell.toLowerCase();
+      if (c.includes("थाना") || c.includes("Fkkuk")) score += 2;
+      if (c.includes("स्थान") || c.includes("LFkku") || c.includes("बैरियर") || c.includes("cSfj;j") || c.includes("fidsV") || c.includes("पिकेट") || c.includes("मार्ग") || c.includes("ekxZ")) score += 2;
+      if (c.includes("नाम") || c.includes("uke") || c.includes("deZpkjh")) score += 2;
+      if (c.includes("मो0") || c.includes("eks0") || c.includes("मोबाइल") || c.includes("eksckbZy")) score += 2;
+      if (c.includes("सं0") || c.includes("dz0") || c.includes("सं") || c.includes("dz")) score += 1;
     }
     if (score > bestHeaderScore) {
       bestHeaderScore = score;
@@ -159,65 +229,65 @@ function parseFormatA(
     }
   }
 
-  const cols = {
-    thana: 0,
-    serial: 1,
-    place: 2,
-    dayOfficerName: 3,
-    dayOfficerMobile: 4,
-    nightOfficerName: 5,
-    nightOfficerMobile: 6
-  };
+  let thanaCol = -1;
+  let placeCol = -1;
+  let serialCol = -1;
+  const nameCols: number[] = [];
+  const mobileCols: number[] = [];
+
+  const row1 = headerIndex !== -1 ? rows[headerIndex] : [];
+  const row2 = headerIndex !== -1 && rows[headerIndex + 1] ? rows[headerIndex + 1] : [];
+
+  for (let idx = 0; idx < Math.max(row1.length, row2.length); idx++) {
+    const val1 = String(row1[idx] || '').toLowerCase();
+    const val2 = String(row2[idx] || '').toLowerCase();
+
+    if (val1.includes("थाना") || val2.includes("थाना") || val1.includes("Fkkuk") || val2.includes("Fkkuk")) {
+      thanaCol = idx;
+    }
+    if (val1.includes("स्थान") || val2.includes("स्थान") || val1.includes("LFkku") || val2.includes("LFkku") ||
+        val1.includes("बैरियर") || val2.includes("बैरियर") || val1.includes("cSfj;j") || val2.includes("cSfj;j") ||
+        val1.includes("fidsV") || val2.includes("fidsV") || val1.includes("पिकेट") || val2.includes("पिकेट") ||
+        val1.includes("मार्ग") || val2.includes("मार्ग") || val1.includes("ekxZ") || val2.includes("ekxZ")) {
+      placeCol = idx;
+    }
+    if (val1.includes("सं") || val2.includes("सं") || val1.includes("dz") || val2.includes("dz") ||
+        val1.includes("क्र") || val2.includes("क्र") || val1.includes("Ø") || val2.includes("Ø")) {
+      serialCol = idx;
+    }
+    if (val1.includes("नाम") || val2.includes("नाम") || val1.includes("uke") || val2.includes("uke") ||
+        val1.includes("deZpkjh") || val2.includes("deZpkjh") || val1.includes("vf/kdkjh") || val2.includes("vf/kdkjh")) {
+      nameCols.push(idx);
+    }
+    if (val1.includes("मो") || val2.includes("मो") || val1.includes("eks") || val2.includes("eks") ||
+        val1.includes("मोबाइल") || val2.includes("मोबाइल") || val1.includes("eksckbZy") || val2.includes("eksckbZy")) {
+      mobileCols.push(idx);
+    }
+  }
+
+  if (serialCol === -1) serialCol = 0;
+  if (placeCol === -1) placeCol = Math.min(2, Math.max(0, rows[0]?.length - 1));
+  if (thanaCol === -1) thanaCol = 0;
+
+  const dayNameCol = nameCols[0] !== undefined ? nameCols[0] : 3;
+  const dayMobileCol = mobileCols[0] !== undefined ? mobileCols[0] : 4;
+  const nightNameCol = nameCols[1] !== undefined ? nameCols[1] : 5;
+  const nightMobileCol = mobileCols[1] !== undefined ? mobileCols[1] : 6;
+
+  let dayTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
+  let nightTime = 'रात्रि 20.00 बजे से 08.00 बजे तक';
 
   if (headerIndex !== -1) {
-    const row1 = rows[headerIndex] || [];
-    const row2 = rows[headerIndex + 1] || [];
-
-    for (let idx = 0; idx < Math.max(row1.length, row2.length); idx++) {
-      const val1 = row1[idx] || "";
-      const val2 = row2[idx] || "";
-      if (val1.includes("थाना") || val2.includes("थाना")) cols.thana = idx;
-      if (val1.includes("सं") || val1.includes("क्र") || val2.includes("सं") || val2.includes("क्र")) cols.serial = idx;
-      if (val1.includes("स्थान") || val1.includes("बैरियर") || val2.includes("स्थान") || val2.includes("बैरियर")) cols.place = idx;
-    }
-
-    const namesFound: number[] = [];
-    const mobilesFound: number[] = [];
-    for (let idx = 3; idx < Math.max(row1.length, row2.length); idx++) {
-      const val1 = row1[idx] || "";
-      const val2 = row2[idx] || "";
-      if (val1.includes("कर्मचारी") || val1.includes("नाम") || val2.includes("कर्मचारी") || val2.includes("नाम")) {
-        namesFound.push(idx);
-      }
-      if (val1.includes("मो0") || val1.includes("मोबाइल") || val1.includes("मो०") || val2.includes("मो0") || val2.includes("मोबाइल") || val2.includes("मो०")) {
-        mobilesFound.push(idx);
-      }
-    }
-    cols.dayOfficerName = namesFound[0] !== undefined ? namesFound[0] : 3;
-    cols.dayOfficerMobile = mobilesFound[0] !== undefined ? mobilesFound[0] : 4;
-    cols.nightOfficerName = namesFound[1] !== undefined ? namesFound[1] : 5;
-    cols.nightOfficerMobile = mobilesFound[1] !== undefined ? mobilesFound[1] : 6;
-  }
-
-  let dayShiftTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
-  let nightShiftTime = 'रात्री 20.00 बजे से 08.00 बजे तक';
-  if (headerIndex !== -1 && rows[headerIndex]) {
     const row = rows[headerIndex];
     for (const cell of row) {
-      if (cell.includes("सुबह") || cell.includes("दिन")) dayShiftTime = cell;
-      if (cell.includes("रात्री") || cell.includes("रात्रि") || cell.includes("रात")) nightShiftTime = cell;
+      const c = cell.toLowerCase();
+      if (c.includes("सुबह") || c.includes("lqcg") || c.includes("दिन") || c.includes("izkr%")) dayTime = cell;
+      if (c.includes("रात्रि") || c.includes("raatri") || c.includes("jk=h") || c.includes("रात")) nightTime = cell;
     }
   }
 
-  let dataStart = headerIndex !== -1 ? headerIndex + 2 : 3;
-  for (let i = dataStart; i < rows.length; i++) {
-    const v = rows[i]?.[cols.serial];
-    if (v !== '' && v !== undefined && !isNaN(Number(v))) {
-      dataStart = i;
-      break;
-    }
-  }
-
+  const dataStart = headerIndex !== -1 ? headerIndex + 2 : 2;
+  
   interface Block {
     thana: string;
     place: string;
@@ -235,17 +305,17 @@ function parseFormatA(
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
-    const colThana = String(row[cols.thana] || '').trim();
-    const colSerial = String(row[cols.serial] || '').trim();
-    const colPlace = String(row[cols.place] || '').trim();
-    const colDayName = String(row[cols.dayOfficerName] || '').trim();
-    const colDayMob = String(row[cols.dayOfficerMobile] || '').trim();
-    const colNightName = String(row[cols.nightOfficerName] || '').trim();
-    const colNightMob = String(row[cols.nightOfficerMobile] || '').trim();
+    const colThana = String(row[thanaCol] || '').trim();
+    const colSerial = String(row[serialCol] || '').trim();
+    const colPlace = String(row[placeCol] || '').trim();
+    const colDayName = String(row[dayNameCol] || '').trim();
+    const colDayMob = String(row[dayMobileCol] || '').trim();
+    const colNightName = String(row[nightNameCol] || '').trim();
+    const colNightMob = String(row[nightMobileCol] || '').trim();
 
     if (colThana) lastThana = colThana;
 
-    const isNew = colSerial !== '' && !isNaN(Number(colSerial));
+    const isNew = colSerial !== '' && !isNaN(Number(colSerial.replace(/[^\d]/g, '')));
 
     if (isNew) {
       cur = {
@@ -273,14 +343,14 @@ function parseFormatA(
   for (const b of blocks) {
     if (b.dayMain.name) {
       records.push({
-        id: `${Date.now()}-${idCounter++}-day`,
-        dutyType: 'बैरियर ड्यूटी',
+        id: `${sheetName}-${Date.now()}-${idCounter++}-day`,
+        dutyType: sheetName || 'पुलिस ड्यूटी',
         mainOfficerName: b.dayMain.name,
         mainOfficerMobile: b.dayMain.mobile,
         supportingOfficers: b.daySupporting,
         dutyPlace: b.place,
         thanaArea: b.thana,
-        dutyTime: dayShiftTime,
+        dutyTime: dayTime,
         zonalMagistrate: '',
         zonalPoliceOfficer: '',
         sectorMagistrate: '',
@@ -289,14 +359,14 @@ function parseFormatA(
     }
     if (b.nightMain.name) {
       records.push({
-        id: `${Date.now()}-${idCounter++}-night`,
-        dutyType: 'बैरियर ड्यूटी',
+        id: `${sheetName}-${Date.now()}-${idCounter++}-night`,
+        dutyType: sheetName || 'पुलिस ड्यूटी',
         mainOfficerName: b.nightMain.name,
         mainOfficerMobile: b.nightMain.mobile,
         supportingOfficers: b.nightSupporting,
         dutyPlace: b.place,
         thanaArea: b.thana,
-        dutyTime: nightShiftTime,
+        dutyTime: nightTime,
         zonalMagistrate: '',
         zonalPoliceOfficer: '',
         sectorMagistrate: '',
@@ -305,19 +375,13 @@ function parseFormatA(
     }
   }
 
-  return { eventName, district, dutyDateFrom, dutyDateTo, records };
+  return records;
 }
 
-// ────────────────────────────────────────────────────────────
-//  FORMAT B: Zonal/Sector-style (>= 9 columns)
-// ────────────────────────────────────────────────────────────
-function parseFormatB(
-  rows: any[][],
-  eventName: string,
-  district: string,
-  dutyDateFrom: string,
-  dutyDateTo: string
-): ExtractionResult {
+/**
+ * Type 2: Zonal/Sector Sheet Parser
+ */
+function parseZonalSectorSheet(rows: any[][], sheetName: string): OfficerRecord[] {
   let headerIndex = -1;
   let bestHeaderScore = 0;
 
@@ -325,15 +389,14 @@ function parseFormatB(
     const row = rows[r];
     let score = 0;
     for (const cell of row) {
-      if (cell.includes("थाना")) score += 2;
-      if (cell.includes("जोन")) score += 2;
-      if (cell.includes("मजिस्ट्रेट")) score += 2;
-      if (cell.includes("सेक्टर")) score += 2;
-      if (cell.includes("मुख्यालय")) score += 2;
-      if (cell.includes("मो0") || cell.includes("मोबाइल") || cell.includes("मो०")) score += 2;
-      if (cell.includes("क्र0") || cell.includes("सं0") || cell.includes("क0सं0") || cell.includes("क्र०")) score += 1;
-      if (cell.includes("समय")) score += 1;
-      if (cell.includes("अधिकारी") || cell.includes("कर्मचारी")) score += 1;
+      const c = cell.toLowerCase();
+      if (c.includes("थाना") || c.includes("Fkkuk")) score += 2;
+      if (c.includes("जोन") || c.includes("tksu")) score += 2;
+      if (c.includes("मजिस्ट्रेट") || c.includes("eftLVªsV")) score += 2;
+      if (c.includes("सेक्टर") || c.includes("lsDVj")) score += 2;
+      if (c.includes("मुख्यालय") || c.includes("eq[;ky;")) score += 2;
+      if (c.includes("मो0") || c.includes("eks0") || c.includes("मो०") || c.includes("eks")) score += 2;
+      if (c.includes("सं") || c.includes("dz") || c.includes("सं0") || c.includes("dz0")) score += 1;
     }
     if (score > bestHeaderScore) {
       bestHeaderScore = score;
@@ -357,26 +420,27 @@ function parseFormatB(
   if (headerIndex !== -1) {
     const headerRow = rows[headerIndex];
     headerRow.forEach((cell, idx) => {
-      if (cell.includes("जोन") && !cell.includes("जोनल") && !cell.includes("मजिस्ट्रेट")) cols.zone = idx;
-      if (cell.includes("जोनल")) cols.zonalMag = idx;
-      if (cell.includes("थाना")) cols.thana = idx;
-      if (cell.includes("मुख्यालय") || cell.includes("स्थान")) cols.sectorHQ = idx;
-      if (cell.includes("सेक्टर") && cell.includes("नाम") && !cell.includes("अधिकारी") && !cell.includes("मजिस्ट्रेट")) cols.sectorName = idx;
-      if (cell.includes("सेक्टर") && cell.includes("मजिस्ट्रेट")) cols.sectorMag = idx;
-      if (cell.includes("समय")) cols.shiftTime = idx;
-      if ((cell.includes("अधिकारी") || cell.includes("कर्मचारी") || cell.includes("नाम")) && 
-          !cell.includes("थाना") && !cell.includes("मजिस्ट्रेट") && !cell.includes("मुख्यालय") && !cell.includes("सेक्टर का नाम")) {
+      const c = cell.toLowerCase();
+      if (c.includes("जोन") && !c.includes("जोनल") && !c.includes("मजिस्ट्रेट") && !c.includes("tksu") && !c.includes("eftLVªsV")) cols.zone = idx;
+      if (c.includes("जोनल") || c.includes("tksuy")) cols.zonalMag = idx;
+      if (c.includes("थाना") || c.includes("Fkkuk")) cols.thana = idx;
+      if (c.includes("मुख्यालय") || c.includes("eq[;ky;") || c.includes("स्थान") || c.includes("LFkku")) cols.sectorHQ = idx;
+      if (c.includes("सेक्टर") && c.includes("नाम") && !c.includes("अधिकारी") && !c.includes("मजिस्ट्रेट") && !c.includes("lsDVj")) cols.sectorName = idx;
+      if (c.includes("सेक्टर") && (c.includes("मजिस्ट्रेट") || c.includes("eftLVªsV"))) cols.sectorMag = idx;
+      if (c.includes("समय") || c.includes("le;")) cols.shiftTime = idx;
+      if ((c.includes("अधिकारी") || c.includes("deZpkjh") || c.includes("deZpkjhx.k") || c.includes("नाम") || c.includes("uke")) && 
+          !c.includes("थाना") && !c.includes("मजिस्ट्रेट") && !c.includes("मुख्यालय") && !c.includes("सेक्टर का नाम") && !c.includes("Fkkuk") && !c.includes("eftLVªsV")) {
         cols.officer = idx;
       }
-      if (cell.includes("मो0") || cell.includes("मोबाइल") || cell.includes("मो०")) cols.mobile = idx;
-      if (cell.includes("सेक्टर") && (cell.includes("संख्या") || cell.includes("सं0") || cell.includes("क्र0"))) cols.sectorSerial = idx;
+      if (c.includes("मो0") || c.includes("eks0") || c.includes("मोबाइल") || c.includes("eksckbZy") || c.includes("मो०") || c.includes("eks")) cols.mobile = idx;
+      if (c.includes("सेक्टर") && (c.includes("संख्या") || c.includes("सं0") || c.includes("dz0") || c.includes("la0"))) cols.sectorSerial = idx;
     });
   }
 
   let dataStart = headerIndex !== -1 ? headerIndex + 1 : 2;
   for (let i = dataStart; i < rows.length; i++) {
-    const v = rows[i]?.[cols.sectorSerial];
-    if (v !== '' && v !== undefined && !isNaN(Number(v))) {
+    const v = String(rows[i]?.[cols.sectorSerial] || '').trim();
+    if (v !== '' && !isNaN(Number(v.replace(/[^\d]/g, '')))) {
       dataStart = i;
       break;
     }
@@ -432,9 +496,9 @@ function parseFormatB(
       lastZonalMag = '';
       lastZonalPolice = '';
       for (const line of lines) {
-        if (line.includes("मजिस्ट्रेट")) {
+        if (line.includes("मजिस्ट्रेट") || line.includes("eftLVªsV")) {
           lastZonalMag = line;
-        } else if (line.includes("पुलिस") || line.includes("अधिकारी")) {
+        } else if (line.includes("पुलिस") || line.includes("iqfyl") || line.includes("अधिकारी") || line.includes("vf/kdkjh")) {
           lastZonalPolice = line;
         } else if (!lastZonalMag) {
           lastZonalMag = line;
@@ -446,7 +510,7 @@ function parseFormatB(
 
     if (!sectorSerial && !officerName && !sectorMag) continue;
 
-    const isNewSector = sectorSerial !== '' && !isNaN(Number(sectorSerial));
+    const isNewSector = sectorSerial !== '' && !isNaN(Number(sectorSerial.replace(/[^\d]/g, '')));
 
     if (isNewSector) {
       phase = 'day';
@@ -504,12 +568,12 @@ function parseFormatB(
     if (s.dayMain.name) {
       const sectorPoliceOfficer = s.dayMain.name + (s.dayMain.mobile ? ` मो0नं0 ${s.dayMain.mobile}` : '');
       records.push({
-        id: `${Date.now()}-${idCounter++}-day`,
+        id: `${sheetName}-${Date.now()}-${idCounter++}-day`,
         dutyType: 'सेक्टर ड्यूटी',
         mainOfficerName: s.dayMain.name,
         mainOfficerMobile: s.dayMain.mobile,
         supportingOfficers: s.daySupporting,
-        dutyPlace: s.sectorHQ,
+        dutyPlace: s.sectorHQ || s.sectorName,
         thanaArea: s.thana,
         dutyTime: s.dayTime,
         zonalMagistrate: s.zonalMagistrate,
@@ -522,12 +586,12 @@ function parseFormatB(
     if (s.nightMain.name) {
       const sectorPoliceOfficer = s.nightMain.name + (s.nightMain.mobile ? ` मो0नं0 ${s.nightMain.mobile}` : '');
       records.push({
-        id: `${Date.now()}-${idCounter++}-night`,
+        id: `${sheetName}-${Date.now()}-${idCounter++}-night`,
         dutyType: 'सेक्टर ड्यूटी',
         mainOfficerName: s.nightMain.name,
         mainOfficerMobile: s.nightMain.mobile,
         supportingOfficers: s.nightSupporting,
-        dutyPlace: s.sectorHQ,
+        dutyPlace: s.sectorHQ || s.sectorName,
         thanaArea: s.thana,
         dutyTime: s.nightTime || 'रात्रि 20:00 बजे से प्रातः 08:00 बजे तक',
         zonalMagistrate: s.zonalMagistrate,
@@ -538,149 +602,133 @@ function parseFormatB(
     }
   }
 
-  return { eventName, district, dutyDateFrom, dutyDateTo, records };
+  return records;
 }
 
-// ────────────────────────────────────────────────────────────
-//  FORMAT C: Stacked Card Layout (< 6 columns)
-// ────────────────────────────────────────────────────────────
-function parseFormatC(
-  rows: any[][],
-  defaultEventName: string,
-  defaultDistrict: string,
-  defaultDateFrom: string,
-  defaultDateTo: string
-): ExtractionResult {
-  const cardStarts: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const rowText = rows[i].join(' ');
-    if (rowText.includes("ड्यूटी कार्ड") || rowText.includes("यात्रा") || rowText.includes("ड्यूटी का प्रकार")) {
-      // Find the header of the card (usually 1 or 2 rows before the "ड्यूटी का प्रकार" labels)
-      if (rowText.includes("ड्यूटी का प्रकार")) {
-        const startCandidate = Math.max(0, i - 2);
-        if (!cardStarts.includes(startCandidate)) {
-          cardStarts.push(startCandidate);
-        }
-      } else if (!cardStarts.includes(i) && (rowText.includes("ड्यूटी कार्ड") || rowText.includes("यात्रा"))) {
-        cardStarts.push(i);
-      }
+/**
+ * Type 3: Simple List Sheet Parser
+ */
+function parseSimpleListSheet(rows: any[][], sheetName: string): OfficerRecord[] {
+  let headerIndex = -1;
+  let bestHeaderScore = 0;
+
+  for (let r = 0; r < Math.min(8, rows.length); r++) {
+    const row = rows[r];
+    let score = 0;
+    for (const cell of row) {
+      const c = cell.toLowerCase();
+      if (c.includes("थाना") || c.includes("Fkkuk")) score += 2;
+      if (c.includes("स्थान") || c.includes("LFkku") || c.includes("मार्ग") || c.includes("ekxZ") || c.includes("cSfj;j") || c.includes("fidsV") || c.includes("eafnj")) score += 2;
+      if (c.includes("नाम") || c.includes("deZpkjh") || c.includes("vf/kdkjh") || c.includes("uke")) score += 2;
+      if (c.includes("मो0") || c.includes("eks0") || c.includes("मोबाइल") || c.includes("eksckbZy") || c.includes("मो०") || c.includes("eks")) score += 2;
+      if (c.includes("सं0") || c.includes("dz0") || c.includes("सं") || c.includes("dz") || c.includes("Ø")) score += 1;
+    }
+    if (score > bestHeaderScore) {
+      bestHeaderScore = score;
+      headerIndex = r;
     }
   }
 
+  const cols = {
+    serial: 0,
+    thana: -1,
+    place: -1,
+    officer: -1,
+    mobile: -1,
+    time: -1,
+    magistrate: -1,
+  };
+
+  const row1 = headerIndex !== -1 ? rows[headerIndex] : [];
+  const row2 = headerIndex !== -1 && rows[headerIndex + 1] ? rows[headerIndex + 1] : [];
+
+  for (let idx = 0; idx < Math.max(row1.length, row2.length); idx++) {
+    const val1 = String(row1[idx] || '').toLowerCase();
+    const val2 = String(row2[idx] || '').toLowerCase();
+
+    if (val1.includes("सं") || val2.includes("सं") || val1.includes("dz") || val2.includes("dz") ||
+        val1.includes("क्र") || val2.includes("क्र") || val1.includes("Ø") || val2.includes("Ø")) {
+      cols.serial = idx;
+    }
+    if (val1.includes("थाना") || val2.includes("थाना") || val1.includes("Fkkuk") || val2.includes("Fkkuk")) {
+      cols.thana = idx;
+    }
+    if (val1.includes("स्थान") || val2.includes("स्थान") || val1.includes("LFkku") || val2.includes("LFkku") ||
+        val1.includes("मार्ग") || val2.includes("मार्ग") || val1.includes("ekxZ") || val2.includes("ekxZ") ||
+        val1.includes("eafnj") || val2.includes("eafnj") || val1.includes("मन्दिर") || val2.includes("मन्दिर")) {
+      cols.place = idx;
+    }
+    if (val1.includes("मजिस्ट्रेट") || val2.includes("मजिस्ट्रेट") || val1.includes("eftLVªsV") || val2.includes("eftLVªsV")) {
+      cols.magistrate = idx;
+    }
+    if (((val1.includes("नाम") || val2.includes("नाम") || val1.includes("uke") || val2.includes("uke") ||
+          val1.includes("deZpkjh") || val2.includes("deZpkjh") || val1.includes("vf/kdkjh") || val2.includes("vf/kdkjh") ||
+          val1.includes("deZpkjhx.k") || val2.includes("deZpkjhx.k")) && 
+         !val1.includes("मजिस्ट्रेट") && !val2.includes("मजिस्ट्रेट") && !val1.includes("eftLVªsV") && !val2.includes("eftLVªsV")) ||
+        (val1.includes("fu;qDr") || val2.includes("fu;qDr"))) {
+      if (cols.officer === -1) cols.officer = idx;
+    }
+    if (val1.includes("मो") || val2.includes("मो") || val1.includes("eks") || val2.includes("eks") ||
+        val1.includes("मोबाइल") || val2.includes("मोबाइल") || val1.includes("eksckbZy") || val2.includes("eksckbZy")) {
+      cols.mobile = idx;
+    }
+    if (val1.includes("समय") || val2.includes("समय") || val1.includes("le;") || val2.includes("le;")) {
+      cols.time = idx;
+    }
+  }
+
+  if (cols.place === -1) cols.place = Math.min(2, Math.max(0, rows[0]?.length - 1));
+  if (cols.officer === -1) cols.officer = Math.min(3, Math.max(0, rows[0]?.length - 1));
+  if (cols.mobile === -1) cols.mobile = Math.min(4, Math.max(0, rows[0]?.length - 1));
+  if (cols.thana === -1) cols.thana = 0;
+
+  const dataStart = headerIndex !== -1 ? headerIndex + 1 : 1;
   const records: OfficerRecord[] = [];
   let idCounter = 0;
 
-  // Use the first card's event meta as global event meta
-  let finalEventName = defaultEventName;
-  let finalDistrict = defaultDistrict;
-  let finalDateFrom = defaultDateFrom;
-  let finalDateTo = defaultDateTo;
+  let curRecord: OfficerRecord | null = null;
+  let lastThana = '';
+  let lastPlace = '';
+  let lastTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
 
-  for (const start of cardStarts) {
-    const headerRowText = rows[start]?.[0] || "";
-    let eventName = defaultEventName;
-    let district = defaultDistrict;
+  for (let i = dataStart; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
 
-    if (headerRowText.includes("यात्रा") || headerRowText.includes("ड्यूटी")) {
-      eventName = headerRowText.split('\n')[0].trim();
-      if (!finalEventName || finalEventName === 'ड्यूटी कार्ड') {
-        finalEventName = eventName;
-      }
-    }
+    const colSerial = String(row[cols.serial] || '').trim();
+    const colThana = cols.thana !== -1 ? String(row[cols.thana] || '').trim() : '';
+    const colPlace = cols.place !== -1 ? String(row[cols.place] || '').trim() : '';
+    const colName = String(row[cols.officer] || '').trim();
+    const colMob = cols.mobile !== -1 ? String(row[cols.mobile] || '').trim() : '';
+    const colTime = cols.time !== -1 ? String(row[cols.time] || '').trim() : '';
+    const colMag = cols.magistrate !== -1 ? String(row[cols.magistrate] || '').trim() : '';
 
-    const mDistrict = headerRowText.match(/जनपद\s*(\S+)/);
-    if (mDistrict) {
-      district = mDistrict[1].trim();
-      if (!finalDistrict) finalDistrict = district;
-    }
+    if (colThana) lastThana = colThana;
+    if (colPlace) lastPlace = colPlace;
+    if (colTime) lastTime = colTime;
 
-    let dutyDateFrom = defaultDateFrom;
-    let dutyDateTo = defaultDateTo;
-    const dateRowText = (rows[start]?.[0] || "") + "\n" + (rows[start + 1]?.[0] || "");
-    const dateRe = /(\d{1,2}[-./]\d{1,2}[-./]\d{4})/g;
-    const dates = dateRowText.match(dateRe);
-    if (dates && dates.length >= 1) {
-      dutyDateFrom = dates[0];
-      if (dates.length >= 2) dutyDateTo = dates[1];
-      if (!finalDateFrom) finalDateFrom = dutyDateFrom;
-      if (!finalDateTo) finalDateTo = dutyDateTo;
-    }
+    const isNew = colSerial !== '' && !isNaN(Number(colSerial.replace(/[^\d]/g, '')));
 
-    // Main officer details (expected at row start+2)
-    const mainOfficerName = rows[start + 2]?.[1] || "";
-    const mainOfficerMobile = String(rows[start + 2]?.[2] || "").trim();
-    const zonalMagistrate = rows[start + 2]?.[3] || "";
-
-    let dutyPlace = "";
-    let thanaArea = "";
-    let dutyTime = "";
-    let zonalPoliceOfficer = "";
-    let sectorMagistrate = "";
-    let sectorPoliceOfficer = "";
-
-    // Find labels dynamically in the next 16 rows to make it layout-independent
-    const limit = Math.min(start + 18, rows.length);
-    let placeLabelRow = -1;
-
-    for (let i = start + 3; i < limit; i++) {
-      const col0 = String(rows[i]?.[0] || "").trim();
-      const col3 = String(rows[i]?.[3] || "").trim();
-
-      if (col0.includes("ड्यूटी का स्थान")) {
-        dutyPlace = rows[i + 1]?.[0] || "";
-        placeLabelRow = i;
-      }
-      if (col0.includes("थाना क्षेत्र")) {
-        thanaArea = rows[i + 1]?.[0] || "";
-      }
-      if (col0.includes("समय")) {
-        dutyTime = rows[i + 1]?.[0] || "";
-      }
-      if (col3.includes("जोनल पुलिस")) {
-        zonalPoliceOfficer = rows[i + 1]?.[3] || "";
-      }
-      if (col3.includes("सेक्टर मजि")) {
-        sectorMagistrate = rows[i + 1]?.[3] || "";
-      }
-      if (col3.includes("सेक्टर पुलिस")) {
-        sectorPoliceOfficer = rows[i + 1]?.[3] || "";
-      }
-    }
-
-    // Extract supporting officers (rows between main officer and duty place label)
-    const supportingOfficers: { name: string; mobile: string }[] = [];
-    const endSearch = placeLabelRow !== -1 ? placeLabelRow : start + 6;
-    for (let k = start + 4; k < endSearch; k++) {
-      const name = rows[k]?.[1] || "";
-      const mobile = String(rows[k]?.[2] || "").trim();
-      if (name && !name.includes("सहयोगी") && !name.includes("कर्मचारी")) {
-        supportingOfficers.push({ name, mobile });
-      }
-    }
-
-    if (mainOfficerName) {
-      records.push({
-        id: `${Date.now()}-${idCounter++}`,
-        dutyType: String(rows[start + 2]?.[0] || 'बैरियर ड्यूटी').trim(),
-        mainOfficerName,
-        mainOfficerMobile,
-        supportingOfficers,
-        dutyPlace,
-        thanaArea,
-        dutyTime,
-        zonalMagistrate,
-        zonalPoliceOfficer,
-        sectorMagistrate,
-        sectorPoliceOfficer
-      });
+    if (isNew || (!curRecord && colName)) {
+      curRecord = {
+        id: `${sheetName}-${Date.now()}-${idCounter++}`,
+        dutyType: sheetName || 'पुलिस ड्यूटी',
+        mainOfficerName: colName,
+        mainOfficerMobile: colMob,
+        supportingOfficers: [],
+        dutyPlace: lastPlace,
+        thanaArea: lastThana,
+        dutyTime: lastTime,
+        zonalMagistrate: '',
+        zonalPoliceOfficer: '',
+        sectorMagistrate: colMag,
+        sectorPoliceOfficer: '',
+      };
+      records.push(curRecord);
+    } else if (curRecord && colName) {
+      curRecord.supportingOfficers.push({ name: colName, mobile: colMob });
     }
   }
 
-  return {
-    eventName: finalEventName,
-    district: finalDistrict,
-    dutyDateFrom: finalDateFrom,
-    dutyDateTo: finalDateTo,
-    records
-  };
+  return records;
 }
