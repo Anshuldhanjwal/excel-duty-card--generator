@@ -85,8 +85,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
               className="text-center px-4 py-2 align-middle border-t border-b border-black"
             >
               <div className="text-[17px] font-bold leading-tight">
-                ड्यूटी दिनांक {dutyDateFrom || '11.07.2025'} से{' '}
-                {dutyDateTo || '24.07.2025'} तक
+                ड्यूटी दिनांक {dutyDateFrom || '11.07.2025'}{dutyDateTo && dutyDateTo !== dutyDateFrom ? ` से ${dutyDateTo} तक` : ''}
               </div>
             </td>
           </tr>

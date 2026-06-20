@@ -566,7 +566,7 @@ function parseFormatC(
 
     let dutyDateFrom = defaultDateFrom;
     let dutyDateTo = defaultDateTo;
-    const dateRowText = rows[start + 1]?.[0] || "";
+    const dateRowText = (rows[start]?.[0] || "") + "\n" + (rows[start + 1]?.[0] || "");
     const dateRe = /(\d{1,2}[-./]\d{1,2}[-./]\d{4})/g;
     const dates = dateRowText.match(dateRe);
     if (dates && dates.length >= 1) {
@@ -631,7 +631,7 @@ function parseFormatC(
     if (mainOfficerName) {
       records.push({
         id: `${Date.now()}-${idCounter++}`,
-        dutyType: "बैरियर ड्यूटी",
+        dutyType: String(rows[start + 2]?.[0] || 'बैरियर ड्यूटी').trim(),
         mainOfficerName,
         mainOfficerMobile,
         supportingOfficers,
