@@ -23,11 +23,10 @@ function cleanAndConvert(val: any): string {
 /**
  * Universal Excel parser for Police Duty Card generation.
  * 
- * Automatically detects whether the file is:
- * - FORMAT A (Barrier-style, side-by-side day/night shifts)
- * - FORMAT B (Zonal/Sector-style, vertically interleaved shifts)
- * 
- * Auto-detects column indices based on header keywords.
+ * Automatically detects three formats:
+ * - FORMAT A (Barrier-style, side-by-side day/night shifts, 6-8 columns)
+ * - FORMAT B (Zonal/Sector-style, vertically interleaved shifts, >= 9 columns)
+ * - FORMAT C (Stacked pre-formatted card layouts, < 6 columns)
  */
 export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   const buffer = await file.arrayBuffer();
@@ -91,15 +90,17 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   if (maxCols >= 9) {
     // ========== FORMAT B: Zonal/Sector (11-col) ==========
     return parseFormatB(rows, eventName, district, dutyDateFrom, dutyDateTo);
-  } else {
+  } else if (maxCols >= 6) {
     // ========== FORMAT A: Barrier (7-col) ==========
     return parseFormatA(rows, eventName, district, dutyDateFrom, dutyDateTo);
+  } else {
+    // ========== FORMAT C: Stacked Card Layout (4-col) ==========
+    return parseFormatC(rows, eventName, district, dutyDateFrom, dutyDateTo);
   }
 }
 
 // ────────────────────────────────────────────────────────────
-//  FORMAT A: Barrier-style (7 columns)
-//  Cols: [thana, serial, place, dayOfficer, dayMobile, nightOfficer, nightMobile]
+//  FORMAT A: Barrier-style (6-8 columns)
 // ────────────────────────────────────────────────────────────
 function parseFormatA(
   rows: any[][],
@@ -108,7 +109,6 @@ function parseFormatA(
   dutyDateFrom: string,
   dutyDateTo: string
 ): ExtractionResult {
-  // Find header row dynamically
   let headerIndex = -1;
   let bestHeaderScore = 0;
 
@@ -129,7 +129,6 @@ function parseFormatA(
     }
   }
 
-  // Fallback defaults
   const cols = {
     thana: 0,
     serial: 1,
@@ -170,7 +169,6 @@ function parseFormatA(
     cols.nightOfficerMobile = mobilesFound[1] !== undefined ? mobilesFound[1] : 6;
   }
 
-  // Find shift time labels from header row
   let dayShiftTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
   let nightShiftTime = 'रात्री 20.00 बजे से 08.00 बजे तक';
   if (headerIndex !== -1 && rows[headerIndex]) {
@@ -182,7 +180,6 @@ function parseFormatA(
   }
 
   let dataStart = headerIndex !== -1 ? headerIndex + 2 : 3;
-  // Find first data row (where cols.serial is numeric)
   for (let i = dataStart; i < rows.length; i++) {
     const v = rows[i]?.[cols.serial];
     if (v !== '' && v !== undefined && !isNaN(Number(v))) {
@@ -240,7 +237,6 @@ function parseFormatA(
     }
   }
 
-  // Build OfficerRecords
   const records: OfficerRecord[] = [];
   let idCounter = 0;
 
@@ -283,9 +279,7 @@ function parseFormatA(
 }
 
 // ────────────────────────────────────────────────────────────
-//  FORMAT B: Zonal/Sector-style (11 columns)
-//  Cols: [superzone, zone, zonalMag, thana, sectorSerial, sectorHQ,
-//         sectorName, sectorMag, shiftTime, officerName, mobile]
+//  FORMAT B: Zonal/Sector-style (>= 9 columns)
 // ────────────────────────────────────────────────────────────
 function parseFormatB(
   rows: any[][],
@@ -294,7 +288,6 @@ function parseFormatB(
   dutyDateFrom: string,
   dutyDateTo: string
 ): ExtractionResult {
-  // Find header row dynamically
   let headerIndex = -1;
   let bestHeaderScore = 0;
 
@@ -318,7 +311,6 @@ function parseFormatB(
     }
   }
 
-  // Fallback defaults
   const cols = {
     zone: 1,
     zonalMag: 2,
@@ -352,7 +344,6 @@ function parseFormatB(
   }
 
   let dataStart = headerIndex !== -1 ? headerIndex + 1 : 2;
-  // Find first data row (where cols.sectorSerial is a number)
   for (let i = dataStart; i < rows.length; i++) {
     const v = rows[i]?.[cols.sectorSerial];
     if (v !== '' && v !== undefined && !isNaN(Number(v))) {
@@ -403,12 +394,10 @@ function parseFormatB(
     const officerName = String(row[cols.officer] || '').trim();
     const mobile = String(row[cols.mobile] || '').trim();
 
-    // Track zone/thana carry-forward
     if (zone) lastZone = zone;
     if (thana) lastThana = thana;
     if (zonalMagRaw && zonalMagRaw !== lastZonalMagRaw) {
       lastZonalMagRaw = zonalMagRaw;
-      // Split and extract Zonal Magistrate / Zonal Police Officer
       const lines = zonalMagRaw.split('\n').map(l => l.trim()).filter(Boolean);
       lastZonalMag = '';
       lastZonalPolice = '';
@@ -425,7 +414,6 @@ function parseFormatB(
       }
     }
 
-    // Skip super-zone or empty header rows
     if (!sectorSerial && !officerName && !sectorMag) continue;
 
     const isNewSector = sectorSerial !== '' && !isNaN(Number(sectorSerial));
@@ -450,7 +438,6 @@ function parseFormatB(
       };
       sectors.push(cur);
     } else if (cur) {
-      // Detect night phase transition
       if (shiftTime && shiftTime !== cur.dayTime) {
         phase = 'night';
         cur.nightTime = shiftTime;
@@ -480,12 +467,10 @@ function parseFormatB(
     }
   }
 
-  // Build records
   const records: OfficerRecord[] = [];
   let idCounter = 0;
 
   for (const s of sectors) {
-    // Day shift
     if (s.dayMain.name) {
       const sectorPoliceOfficer = s.dayMain.name + (s.dayMain.mobile ? ` मो0नं0 ${s.dayMain.mobile}` : '');
       records.push({
@@ -504,7 +489,6 @@ function parseFormatB(
       });
     }
 
-    // Night shift
     if (s.nightMain.name) {
       const sectorPoliceOfficer = s.nightMain.name + (s.nightMain.mobile ? ` मो0नं0 ${s.nightMain.mobile}` : '');
       records.push({
@@ -525,4 +509,148 @@ function parseFormatB(
   }
 
   return { eventName, district, dutyDateFrom, dutyDateTo, records };
+}
+
+// ────────────────────────────────────────────────────────────
+//  FORMAT C: Stacked Card Layout (< 6 columns)
+// ────────────────────────────────────────────────────────────
+function parseFormatC(
+  rows: any[][],
+  defaultEventName: string,
+  defaultDistrict: string,
+  defaultDateFrom: string,
+  defaultDateTo: string
+): ExtractionResult {
+  const cardStarts: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const rowText = rows[i].join(' ');
+    if (rowText.includes("ड्यूटी कार्ड") || rowText.includes("यात्रा") || rowText.includes("ड्यूटी का प्रकार")) {
+      // Find the header of the card (usually 1 or 2 rows before the "ड्यूटी का प्रकार" labels)
+      if (rowText.includes("ड्यूटी का प्रकार")) {
+        const startCandidate = Math.max(0, i - 2);
+        if (!cardStarts.includes(startCandidate)) {
+          cardStarts.push(startCandidate);
+        }
+      } else if (!cardStarts.includes(i) && (rowText.includes("ड्यूटी कार्ड") || rowText.includes("यात्रा"))) {
+        cardStarts.push(i);
+      }
+    }
+  }
+
+  const records: OfficerRecord[] = [];
+  let idCounter = 0;
+
+  // Use the first card's event meta as global event meta
+  let finalEventName = defaultEventName;
+  let finalDistrict = defaultDistrict;
+  let finalDateFrom = defaultDateFrom;
+  let finalDateTo = defaultDateTo;
+
+  for (const start of cardStarts) {
+    const headerRowText = rows[start]?.[0] || "";
+    let eventName = defaultEventName;
+    let district = defaultDistrict;
+
+    if (headerRowText.includes("यात्रा") || headerRowText.includes("ड्यूटी")) {
+      eventName = headerRowText.split('\n')[0].trim();
+      if (!finalEventName || finalEventName === 'ड्यूटी कार्ड') {
+        finalEventName = eventName;
+      }
+    }
+
+    const mDistrict = headerRowText.match(/जनपद\s*(\S+)/);
+    if (mDistrict) {
+      district = mDistrict[1].trim();
+      if (!finalDistrict) finalDistrict = district;
+    }
+
+    let dutyDateFrom = defaultDateFrom;
+    let dutyDateTo = defaultDateTo;
+    const dateRowText = rows[start + 1]?.[0] || "";
+    const dateRe = /(\d{1,2}[-./]\d{1,2}[-./]\d{4})/g;
+    const dates = dateRowText.match(dateRe);
+    if (dates && dates.length >= 1) {
+      dutyDateFrom = dates[0];
+      if (dates.length >= 2) dutyDateTo = dates[1];
+      if (!finalDateFrom) finalDateFrom = dutyDateFrom;
+      if (!finalDateTo) finalDateTo = dutyDateTo;
+    }
+
+    // Main officer details (expected at row start+2)
+    const mainOfficerName = rows[start + 2]?.[1] || "";
+    const mainOfficerMobile = String(rows[start + 2]?.[2] || "").trim();
+    const zonalMagistrate = rows[start + 2]?.[3] || "";
+
+    let dutyPlace = "";
+    let thanaArea = "";
+    let dutyTime = "";
+    let zonalPoliceOfficer = "";
+    let sectorMagistrate = "";
+    let sectorPoliceOfficer = "";
+
+    // Find labels dynamically in the next 16 rows to make it layout-independent
+    const limit = Math.min(start + 18, rows.length);
+    let placeLabelRow = -1;
+
+    for (let i = start + 3; i < limit; i++) {
+      const col0 = String(rows[i]?.[0] || "").trim();
+      const col3 = String(rows[i]?.[3] || "").trim();
+
+      if (col0.includes("ड्यूटी का स्थान")) {
+        dutyPlace = rows[i + 1]?.[0] || "";
+        placeLabelRow = i;
+      }
+      if (col0.includes("थाना क्षेत्र")) {
+        thanaArea = rows[i + 1]?.[0] || "";
+      }
+      if (col0.includes("समय")) {
+        dutyTime = rows[i + 1]?.[0] || "";
+      }
+      if (col3.includes("जोनल पुलिस")) {
+        zonalPoliceOfficer = rows[i + 1]?.[3] || "";
+      }
+      if (col3.includes("सेक्टर मजि")) {
+        sectorMagistrate = rows[i + 1]?.[3] || "";
+      }
+      if (col3.includes("सेक्टर पुलिस")) {
+        sectorPoliceOfficer = rows[i + 1]?.[3] || "";
+      }
+    }
+
+    // Extract supporting officers (rows between main officer and duty place label)
+    const supportingOfficers: { name: string; mobile: string }[] = [];
+    const endSearch = placeLabelRow !== -1 ? placeLabelRow : start + 6;
+    for (let k = start + 4; k < endSearch; k++) {
+      const name = rows[k]?.[1] || "";
+      const mobile = String(rows[k]?.[2] || "").trim();
+      if (name && !name.includes("सहयोगी") && !name.includes("कर्मचारी")) {
+        supportingOfficers.push({ name, mobile });
+      }
+    }
+
+    if (mainOfficerName) {
+      records.push({
+        id: `${Date.now()}-${idCounter++}`,
+        dutyType: "बैरियर ड्यूटी",
+        mainOfficerName,
+        mainOfficerMobile,
+        supportingOfficers,
+        dutyPlace,
+        thanaArea,
+        dutyTime,
+        zonalMagistrate,
+        zonalPoliceOfficer,
+        sectorMagistrate,
+        sectorPoliceOfficer
+      });
+    }
+  }
+
+  return {
+    eventName: finalEventName,
+    district: finalDistrict,
+    dutyDateFrom: finalDateFrom,
+    dutyDateTo: finalDateTo,
+    records
+  };
 }
