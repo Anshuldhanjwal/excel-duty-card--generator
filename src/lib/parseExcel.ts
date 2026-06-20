@@ -1,55 +1,47 @@
 import * as XLSX from 'xlsx';
 import type { OfficerRecord, ExtractionResult } from '../types';
 
+/**
+ * Universal Excel parser for Police Duty Card generation.
+ * 
+ * Supports two layouts:
+ * 
+ * FORMAT A — "Barrier-style" (7 cols, Hindi Unicode):
+ *   [thana, serial, place, dayOfficerName, dayMobile, nightOfficerName, nightMobile]
+ *   Header rows 0-2, data from row 3+. Serial number in col 1 marks new blocks.
+ * 
+ * FORMAT B — "Zonal/Sector-style" (11 cols, often Krutidev):
+ *   [superzone, zone, zonalMagistrate, thana, sectorSerial, sectorHQ, sectorName,
+ *    sectorMagistrate, shiftTime, officerName, mobile]
+ *   Day and night rows are interleaved. Sector serial in col 4 marks new blocks.
+ */
 export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
-  
-  // Get the first sheet
+
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  
-  // Convert to array of arrays (raw rows)
-  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { 
-    header: 1, 
+
+  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
     defval: '',
-    blankrows: false 
+    blankrows: false,
   });
 
   if (rows.length === 0) {
     throw new Error('Excel फाइल खाली है।');
   }
 
-  // 1. Detect if it is the Tabular/Shift format or Standard format
-  let isTabularShift = false;
-  let hasMorning = false;
-  let hasNight = false;
-  
-  for (let r = 0; r < Math.min(5, rows.length); r++) {
-    const rowText = rows[r].join(' ');
-    if (rowText.includes('सुबह') || rowText.includes('दिन') || rowText.includes('08.00') || rowText.includes('08:00')) {
-      hasMorning = true;
-    }
-    if (rowText.includes('रात्रि') || rowText.includes('रात्री') || rowText.includes('रात') || rowText.includes('20.00') || rowText.includes('20:00')) {
-      hasNight = true;
-    }
-  }
+  // --- Determine file format by column count ---
+  const maxCols = Math.max(...rows.map((r) => r.length));
 
-  if (hasMorning || hasNight || (rows[0] && rows[0].length >= 5)) {
-    isTabularShift = true;
-  }
-
-  // Extract metadata
-  let eventName = '';
-  let district = 'बुलन्दशहर';
+  // Extract dates if present
   let dutyDateFrom = '';
   let dutyDateTo = '';
-
-  // Dates search
-  const datePattern = /(\d{1,2}[./]\d{1,2}[./]\d{4})/g;
-  for (let r = 0; r < rows.length; r++) {
-    const rowText = rows[r].join(' ');
-    const dates = rowText.match(datePattern);
+  const dateRe = /(\d{1,2}[./]\d{1,2}[./]\d{4})/g;
+  for (const row of rows) {
+    const text = row.join(' ');
+    const dates = text.match(dateRe);
     if (dates && dates.length >= 1) {
       dutyDateFrom = dates[0];
       if (dates.length >= 2) dutyDateTo = dates[1];
@@ -57,331 +49,342 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
     }
   }
 
-  // District search
-  for (let r = 0; r < Math.min(5, rows.length); r++) {
-    const rowText = rows[r].join(' ');
-    if (rowText.includes('जनपद')) {
-      const match = rowText.match(/जनपद\s+(\S+)/);
-      if (match) {
-        district = match[1].replace(/[^\u0900-\u097F]/g, '').trim(); // Keep only Hindi characters
-      }
+  // Extract district
+  let district = 'बुलन्दशहर';
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const text = rows[i].join(' ');
+    if (text.includes('जनपद')) {
+      const m = text.match(/जनपद\s+(\S+)/);
+      if (m) district = m[1].replace(/[^\u0900-\u097F]/g, '').trim() || district;
     }
   }
 
-  if (isTabularShift) {
-    // --- TABULAR SHIFT FORMAT ---
-    if (rows[0] && rows[0][0]) {
-      eventName = String(rows[0][0]).trim();
-    } else {
-      eventName = 'ड्यूटी कार्ड';
-    }
-
-    let thanaColIndex = 0;
-    let serialColIndex = 1;
-    let placeColIndex = 2;
-    let dayOfficerColIndex = 3;
-    let dayMobileColIndex = 4;
-    let nightOfficerColIndex = 5;
-    let nightMobileColIndex = 6;
-
-    let dayShiftTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
-    let nightShiftTime = 'रात्री 20.00 बजे से 08.00 बजे तक';
-
-    // Find start of data first so we know where the headers end
-    let dataStartRow = 3;
-    for (let r = 0; r < rows.length; r++) {
-      const rowText = rows[r].join(' ');
-      if (rowText.includes('कर्मचारी') || rowText.includes('मो0नं0') || rowText.includes('मोबाइल')) {
-        dataStartRow = r + 1;
-      }
-    }
-
-    // Dynamic headers identification - strictly scan ONLY header rows (before dataStartRow)
-    for (let r = 0; r < dataStartRow; r++) {
-      const row = rows[r];
-      if (!row) continue;
-      for (let c = 0; c < row.length; c++) {
-        const val = String(row[c] || '').trim();
-        if (val.includes('थाना')) {
-          thanaColIndex = c;
-        }
-        if (val.includes('सं') || val.includes('क्र')) {
-          serialColIndex = c;
-        }
-        if (val.includes('स्थान')) {
-          placeColIndex = c;
-        }
-        if (val.includes('सुबह') || val.includes('दिन') || val.includes('08.00') || val.includes('08:00')) {
-          dayOfficerColIndex = c;
-          dayShiftTime = val;
-          if (c + 1 < row.length) dayMobileColIndex = c + 1;
-        }
-        if (val.includes('रात्रि') || val.includes('रात्री') || val.includes('रात') || val.includes('20.00') || val.includes('20:00')) {
-          nightOfficerColIndex = c;
-          nightShiftTime = val;
-          if (c + 1 < row.length) nightMobileColIndex = c + 1;
-        }
-      }
-    }
-
-    // Determine dutyType from eventName
-    let dutyType = 'बैरियर ड्यूटी';
-    if (eventName.includes('ड्यूटी')) {
-      const match = eventName.match(/(.*?ड्यूटी)/);
-      if (match) dutyType = match[1].trim();
-    }
-
-    interface RowBlock {
-      thanaArea: string;
-      serialNum: string;
-      dutyPlace: string;
-      dayMainName: string;
-      dayMainMobile: string;
-      nightMainName: string;
-      nightMainMobile: string;
-      daySupporting: { name: string; mobile: string }[];
-      nightSupporting: { name: string; mobile: string }[];
-    }
-
-    const blocks: RowBlock[] = [];
-    let currentBlock: RowBlock | null = null;
-    let lastThana = '';
-
-    for (let i = dataStartRow; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length === 0) continue;
-
-      const colA = String(row[thanaColIndex] || '').trim();
-      const colB = String(row[serialColIndex] || '').trim();
-      const colC = String(row[placeColIndex] || '').trim();
-
-      if (colA) {
-        lastThana = colA;
-      }
-
-      // A new block starts if we have a non-empty serial number
-      const isNewBlock = colB !== '' && !isNaN(Number(colB));
-
-      if (isNewBlock) {
-        currentBlock = {
-          thanaArea: lastThana,
-          serialNum: colB,
-          dutyPlace: colC || (currentBlock ? currentBlock.dutyPlace : ''),
-          dayMainName: String(row[dayOfficerColIndex] || '').trim(),
-          dayMainMobile: String(row[dayMobileColIndex] || '').trim(),
-          nightMainName: String(row[nightOfficerColIndex] || '').trim(),
-          nightMainMobile: String(row[nightMobileColIndex] || '').trim(),
-          daySupporting: [],
-          nightSupporting: [],
-        };
-        blocks.push(currentBlock);
-      } else if (currentBlock) {
-        // Supporting staff rows
-        const dayName = String(row[dayOfficerColIndex] || '').trim();
-        const dayMobile = String(row[dayMobileColIndex] || '').trim();
-        const nightName = String(row[nightOfficerColIndex] || '').trim();
-        const nightMobile = String(row[nightMobileColIndex] || '').trim();
-
-        if (dayName && !dayName.includes('कर्मचारी') && !dayName.includes('नाम')) {
-          currentBlock.daySupporting.push({ name: dayName, mobile: dayMobile });
-        }
-        if (nightName && !nightName.includes('कर्मचारी') && !nightName.includes('नाम')) {
-          currentBlock.nightSupporting.push({ name: nightName, mobile: nightMobile });
-        }
-      }
-    }
-
-    // Build final records
-    const records: OfficerRecord[] = [];
-    blocks.forEach((block) => {
-      // 1. Day Shift Record
-      if (block.dayMainName) {
-        records.push({
-          id: `${Date.now()}-${records.length}-day`,
-          dutyType: dutyType,
-          mainOfficerName: block.dayMainName,
-          mainOfficerMobile: block.dayMainMobile,
-          supportingOfficers: block.daySupporting,
-          dutyPlace: block.dutyPlace,
-          thanaArea: block.thanaArea,
-          dutyTime: dayShiftTime,
-          zonalMagistrate: '',
-          zonalPoliceOfficer: '',
-          sectorMagistrate: '',
-          sectorPoliceOfficer: '',
-        });
-      }
-
-      // 2. Night Shift Record
-      if (block.nightMainName) {
-        records.push({
-          id: `${Date.now()}-${records.length}-night`,
-          dutyType: dutyType,
-          mainOfficerName: block.nightMainName,
-          mainOfficerMobile: block.nightMainMobile,
-          supportingOfficers: block.nightSupporting,
-          dutyPlace: block.dutyPlace,
-          thanaArea: block.thanaArea,
-          dutyTime: nightShiftTime,
-          zonalMagistrate: '',
-          zonalPoliceOfficer: '',
-          sectorMagistrate: '',
-          sectorPoliceOfficer: '',
-        });
-      }
-    });
-
-    return {
-      eventName,
-      district,
-      dutyDateFrom,
-      dutyDateTo,
-      records,
-    };
-
+  if (maxCols >= 9) {
+    // ========== FORMAT B: Zonal/Sector (11-col) ==========
+    return parseFormatB(rows, district, dutyDateFrom, dutyDateTo);
   } else {
-    // --- STANDARD ORIGINAL FORMAT ---
-    // Search first 5 rows for metadata
-    for (let i = 0; i < Math.min(5, rows.length); i++) {
-      const rowText = rows[i].join(' ').trim();
-      
-      // Event name
-      if (!eventName && (rowText.includes('यात्रा') || rowText.includes('शिवरात्रि') || rowText.includes('मेला') || rowText.includes('ड्यूटी'))) {
-        eventName = rowText.split('\n')[0].trim();
+    // ========== FORMAT A: Barrier (7-col) ==========
+    return parseFormatA(rows, district, dutyDateFrom, dutyDateTo);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  FORMAT A: Barrier-style (7 columns)
+//  Cols: [thana, serial, place, dayOfficer, dayMobile, nightOfficer, nightMobile]
+// ────────────────────────────────────────────────────────────
+function parseFormatA(
+  rows: any[][],
+  district: string,
+  dutyDateFrom: string,
+  dutyDateTo: string
+): ExtractionResult {
+  // Row 0 = title, Row 1-2 = headers, Row 3+ = data
+  const eventName = String(rows[0]?.[0] || '').trim() || 'ड्यूटी कार्ड';
+
+  // Determine duty type from event name
+  let dutyType = 'बैरियर ड्यूटी';
+  if (eventName.includes('ड्यूटी')) {
+    const m = eventName.match(/(.*?ड्यूटी)/);
+    if (m) dutyType = m[1].trim();
+  }
+
+  // Find shift time labels from header row 1
+  let dayShiftTime = 'सुबह 08.00 बजे से 20.00 बजे तक';
+  let nightShiftTime = 'रात्री 20.00 बजे से 08.00 बजे तक';
+  if (rows[1]) {
+    const dayLabel = String(rows[1][3] || '').trim();
+    const nightLabel = String(rows[1][5] || '').trim();
+    if (dayLabel) dayShiftTime = dayLabel;
+    if (nightLabel) nightShiftTime = nightLabel;
+  }
+
+  // Find data start (first row where col[1] is a number)
+  let dataStart = 3;
+  for (let i = 2; i < rows.length; i++) {
+    const v = rows[i][1];
+    if (v !== '' && !isNaN(Number(v))) {
+      dataStart = i;
+      break;
+    }
+  }
+
+  interface Block {
+    thana: string;
+    place: string;
+    dayMain: { name: string; mobile: string };
+    nightMain: { name: string; mobile: string };
+    daySupporting: { name: string; mobile: string }[];
+    nightSupporting: { name: string; mobile: string }[];
+  }
+
+  const blocks: Block[] = [];
+  let cur: Block | null = null;
+  let lastThana = '';
+
+  for (let i = dataStart; i < rows.length; i++) {
+    const row = rows[i];
+    const colThana = String(row[0] || '').trim();
+    const colSerial = String(row[1] || '').trim();
+    const colPlace = String(row[2] || '').trim();
+    const colDayName = String(row[3] || '').trim();
+    const colDayMob = String(row[4] || '').trim();
+    const colNightName = String(row[5] || '').trim();
+    const colNightMob = String(row[6] || '').trim();
+
+    if (colThana) lastThana = colThana;
+
+    const isNew = colSerial !== '' && !isNaN(Number(colSerial));
+
+    if (isNew) {
+      cur = {
+        thana: lastThana,
+        place: colPlace,
+        dayMain: { name: colDayName, mobile: colDayMob },
+        nightMain: { name: colNightName, mobile: colNightMob },
+        daySupporting: [],
+        nightSupporting: [],
+      };
+      blocks.push(cur);
+    } else if (cur) {
+      // Supporting staff rows
+      if (colDayName) {
+        cur.daySupporting.push({ name: colDayName, mobile: colDayMob });
+      }
+      if (colNightName) {
+        cur.nightSupporting.push({ name: colNightName, mobile: colNightMob });
       }
     }
+  }
 
-    let dataStartRow = -1;
-    for (let i = 0; i < rows.length; i++) {
-      const rowText = rows[i].join(' ');
-      if (rowText.includes('ड्यूटी का प्रकार') || rowText.includes('अधिकारी') || rowText.includes('कर्मचारी')) {
-        dataStartRow = i + 1;
-        break;
-      }
+  // Build OfficerRecords
+  const records: OfficerRecord[] = [];
+  let idCounter = 0;
+
+  for (const b of blocks) {
+    if (b.dayMain.name) {
+      records.push({
+        id: `${Date.now()}-${idCounter++}-day`,
+        dutyType,
+        mainOfficerName: b.dayMain.name,
+        mainOfficerMobile: b.dayMain.mobile,
+        supportingOfficers: b.daySupporting,
+        dutyPlace: b.place,
+        thanaArea: b.thana,
+        dutyTime: dayShiftTime,
+        zonalMagistrate: '',
+        zonalPoliceOfficer: '',
+        sectorMagistrate: '',
+        sectorPoliceOfficer: '',
+      });
     }
-    
-    if (dataStartRow === -1) dataStartRow = 3;
+    if (b.nightMain.name) {
+      records.push({
+        id: `${Date.now()}-${idCounter++}-night`,
+        dutyType,
+        mainOfficerName: b.nightMain.name,
+        mainOfficerMobile: b.nightMain.mobile,
+        supportingOfficers: b.nightSupporting,
+        dutyPlace: b.place,
+        thanaArea: b.thana,
+        dutyTime: nightShiftTime,
+        zonalMagistrate: '',
+        zonalPoliceOfficer: '',
+        sectorMagistrate: '',
+        sectorPoliceOfficer: '',
+      });
+    }
+  }
 
-    const records: OfficerRecord[] = [];
-    
-    let currentDutyType = '';
-    let currentMainOfficer = '';
-    let currentMainMobile = '';
-    let currentSupportingOfficers: { name: string; mobile: string }[] = [];
-    let currentDutyPlace = '';
-    let currentThanaArea = '';
-    let currentDutyTime = '';
-    let inSupportingSection = false;
-    let currentDutyTimeLabel = false;
-    let currentDutyPlaceLabel = false;
-    let currentThanaLabel = false;
+  return { eventName, district, dutyDateFrom, dutyDateTo, records };
+}
 
-    const saveRecord = () => {
-      if (currentMainOfficer || currentDutyPlace) {
-        records.push({
-          id: `${Date.now()}-${records.length}`,
-          dutyType: currentDutyType || 'ड्यूटी',
-          mainOfficerName: currentMainOfficer,
-          mainOfficerMobile: currentMainMobile,
-          supportingOfficers: [...currentSupportingOfficers],
-          dutyPlace: currentDutyPlace,
-          thanaArea: currentThanaArea,
-          dutyTime: currentDutyTime || 'प्रातः 08:00 बजे से रात्रि 20:00 बजे तक',
-          zonalMagistrate: '',
-          zonalPoliceOfficer: '',
-          sectorMagistrate: '',
-          sectorPoliceOfficer: '',
-        });
+// ────────────────────────────────────────────────────────────
+//  FORMAT B: Zonal/Sector-style (11 columns)
+//  Cols: [superzone, zone, zonalMag, thana, sectorSerial, sectorHQ,
+//         sectorName, sectorMag, shiftTime, officerName, mobile]
+// ────────────────────────────────────────────────────────────
+function parseFormatB(
+  rows: any[][],
+  district: string,
+  dutyDateFrom: string,
+  dutyDateTo: string
+): ExtractionResult {
+  const eventName = String(rows[0]?.[0] || '').trim() || 'ड्यूटी कार्ड';
+
+  // Column indices (fixed for this format)
+  const COL_ZONE = 1;
+  const COL_ZONAL_MAG = 2;
+  const COL_THANA = 3;
+  const COL_SECTOR_SERIAL = 4;
+  const COL_SECTOR_HQ = 5;
+  const COL_SECTOR_NAME = 6;
+  const COL_SECTOR_MAG = 7;
+  const COL_SHIFT_TIME = 8;
+  const COL_OFFICER = 9;
+  const COL_MOBILE = 10;
+
+  // Find header row (contains something like "सं" or "eks0" or sector keywords)
+  let dataStart = 2;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const text = rows[i].join(' ');
+    if (text.includes('eks0ua0') || text.includes('मो0नं0') || text.includes('lsDVj') || text.includes('सेक्टर')) {
+      dataStart = i + 1;
+      break;
+    }
+  }
+
+  // Find first data row (where COL_SECTOR_SERIAL is numeric)
+  for (let i = dataStart; i < rows.length; i++) {
+    const v = rows[i]?.[COL_SECTOR_SERIAL];
+    if (v !== '' && v !== undefined && !isNaN(Number(v))) {
+      dataStart = i;
+      break;
+    }
+  }
+
+  interface Sector {
+    thana: string;
+    zone: string;
+    zonalMagistrate: string;
+    sectorHQ: string;
+    sectorName: string;
+    dayMagistrate: string;
+    nightMagistrate: string;
+    dayMain: { name: string; mobile: string };
+    nightMain: { name: string; mobile: string };
+    daySupporting: { name: string; mobile: string }[];
+    nightSupporting: { name: string; mobile: string }[];
+    dayTime: string;
+    nightTime: string;
+  }
+
+  const sectors: Sector[] = [];
+  let cur: Sector | null = null;
+  let lastThana = '';
+  let lastZone = '';
+  let lastZonalMag = '';
+
+  // Phase: 'day' or 'night'. The first officer row after a sector serial is day.
+  // When COL_SHIFT_TIME changes, we switch to night.
+  let phase: 'day' | 'night' = 'day';
+
+  for (let i = dataStart; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    const zone = String(row[COL_ZONE] || '').trim();
+    const zonalMag = String(row[COL_ZONAL_MAG] || '').trim();
+    const thana = String(row[COL_THANA] || '').trim();
+    const sectorSerial = String(row[COL_SECTOR_SERIAL] || '').trim();
+    const sectorHQ = String(row[COL_SECTOR_HQ] || '').trim();
+    const sectorName = String(row[COL_SECTOR_NAME] || '').trim();
+    const sectorMag = String(row[COL_SECTOR_MAG] || '').trim();
+    const shiftTime = String(row[COL_SHIFT_TIME] || '').trim();
+    const officerName = String(row[COL_OFFICER] || '').trim();
+    const mobile = String(row[COL_MOBILE] || '').trim();
+
+    // Track zone/thana carry-forward
+    if (zone) lastZone = zone;
+    if (zonalMag) lastZonalMag = zonalMag;
+    if (thana) lastThana = thana;
+
+    // Skip super-zone header rows (col 0 has text but no sector serial or officer)
+    if (!sectorSerial && !officerName && !sectorMag) continue;
+
+    const isNewSector = sectorSerial !== '' && !isNaN(Number(sectorSerial));
+
+    if (isNewSector) {
+      phase = 'day';
+      cur = {
+        thana: lastThana,
+        zone: lastZone,
+        zonalMagistrate: lastZonalMag,
+        sectorHQ,
+        sectorName,
+        dayMagistrate: sectorMag,
+        nightMagistrate: '',
+        dayMain: { name: officerName, mobile },
+        nightMain: { name: '', mobile: '' },
+        daySupporting: [],
+        nightSupporting: [],
+        dayTime: shiftTime || 'izkr% 08%00 cts ls 20%00 cts rd',
+        nightTime: '',
+      };
+      sectors.push(cur);
+    } else if (cur) {
+      // Detect night phase transition: if shiftTime is present and different from dayTime
+      if (shiftTime && shiftTime !== cur.dayTime) {
+        phase = 'night';
+        cur.nightTime = shiftTime;
       }
-    };
 
-    for (let i = dataStartRow; i < rows.length; i++) {
-      const row = rows[i];
-      const colA = String(row[0] || '').trim();
-      const colB = String(row[1] || '').trim();
-      const colC = String(row[2] || '').trim();
-
-      if (!colA && !colB && !colC) continue;
-
-      if (colA.includes('ड्यूटी का प्रकार')) continue; 
-      
-      if (colA.includes('ड्यूटी का स्थान')) {
-        currentDutyPlaceLabel = true;
-        currentThanaLabel = false;
-        currentDutyTimeLabel = false;
-        continue;
-      }
-      
-      if (colA.includes('थाना क्षेत्र')) {
-        currentThanaLabel = true;
-        currentDutyPlaceLabel = false;
-        currentDutyTimeLabel = false;
-        continue;
-      }
-      
-      if (colA.includes('ड्यूटी का समय')) {
-        currentDutyTimeLabel = true;
-        currentDutyPlaceLabel = false;
-        currentThanaLabel = false;
-        continue;
+      // If sector magistrate changes in a non-new row, it's the night magistrate
+      if (sectorMag && phase === 'night') {
+        cur.nightMagistrate = sectorMag;
+      } else if (sectorMag && phase === 'day' && !cur.dayMagistrate) {
+        cur.dayMagistrate = sectorMag;
       }
 
-      if (colA && !colA.includes('ड्यूटी का') && !colA.includes('थाना क्षेत्र')) {
-        if (colA.includes('ड्यूटी') || (colA.length < 30 && colB && !currentDutyType)) {
-          if (currentMainOfficer || currentDutyPlace) saveRecord();
-          
-          currentDutyType = colA;
-          currentMainOfficer = colB;
-          currentMainMobile = colC;
-          currentSupportingOfficers = [];
-          currentDutyPlace = '';
-          currentThanaArea = '';
-          currentDutyTime = '';
-          inSupportingSection = false;
-          currentDutyPlaceLabel = false;
-          currentThanaLabel = false;
-          currentDutyTimeLabel = false;
-          continue;
+      if (officerName) {
+        if (phase === 'day') {
+          if (!cur.dayMain.name) {
+            // This shouldn't happen but handle gracefully
+            cur.dayMain = { name: officerName, mobile };
+          } else {
+            cur.daySupporting.push({ name: officerName, mobile });
+          }
+        } else {
+          if (!cur.nightMain.name) {
+            cur.nightMain = { name: officerName, mobile };
+          } else {
+            cur.nightSupporting.push({ name: officerName, mobile });
+          }
         }
       }
-
-      if (colB.includes('सहयोगी') || colB.includes('पुलिसकमियों')) {
-        inSupportingSection = true;
-        continue;
-      }
-
-      if (inSupportingSection && colB && !colB.includes('सहयोगी')) {
-        currentSupportingOfficers.push({ name: colB, mobile: colC });
-        continue;
-      }
-
-      if (currentDutyPlaceLabel && colA) {
-        currentDutyPlace = colA;
-        currentDutyPlaceLabel = false;
-        continue;
-      }
-      
-      if (currentThanaLabel && colA) {
-        currentThanaArea = colA;
-        currentThanaLabel = false;
-        continue;
-      }
-      
-      if (currentDutyTimeLabel && colA) {
-        currentDutyTime = colA;
-        currentDutyTimeLabel = false;
-        continue;
-      }
     }
-    
-    saveRecord();
-
-    return {
-      eventName: eventName || 'ड्यूटी कार्ड',
-      district: district || 'बुलन्दशहर',
-      dutyDateFrom,
-      dutyDateTo,
-      records,
-    };
   }
+
+  // Build records
+  const records: OfficerRecord[] = [];
+  let idCounter = 0;
+
+  for (const s of sectors) {
+    // Day shift
+    if (s.dayMain.name) {
+      records.push({
+        id: `${Date.now()}-${idCounter++}-day`,
+        dutyType: 'बैरियर ड्यूटी',
+        mainOfficerName: s.dayMain.name,
+        mainOfficerMobile: s.dayMain.mobile,
+        supportingOfficers: s.daySupporting,
+        dutyPlace: s.sectorHQ,
+        thanaArea: s.thana,
+        dutyTime: s.dayTime,
+        zonalMagistrate: '',
+        zonalPoliceOfficer: '',
+        sectorMagistrate: s.dayMagistrate,
+        sectorPoliceOfficer: '',
+      });
+    }
+
+    // Night shift
+    if (s.nightMain.name) {
+      records.push({
+        id: `${Date.now()}-${idCounter++}-night`,
+        dutyType: 'बैरियर ड्यूटी',
+        mainOfficerName: s.nightMain.name,
+        mainOfficerMobile: s.nightMain.mobile,
+        supportingOfficers: s.nightSupporting,
+        dutyPlace: s.sectorHQ,
+        thanaArea: s.thana,
+        dutyTime: s.nightTime,
+        zonalMagistrate: '',
+        zonalPoliceOfficer: '',
+        sectorMagistrate: s.nightMagistrate,
+        sectorPoliceOfficer: '',
+      });
+    }
+  }
+
+  return { eventName, district, dutyDateFrom, dutyDateTo, records };
 }
