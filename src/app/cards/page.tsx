@@ -88,7 +88,7 @@ export default function CardsPage() {
   useEffect(() => {
     const handleAfterPrint = () => {
       setIsPrinting(false);
-      document.body.classList.remove('printing-all', 'printing-single', 'print-layout-a4-double');
+      document.body.classList.remove('printing-all', 'printing-single', 'print-layout-a4-double', 'print-layout-a4-triple');
       const styleEl = document.getElementById('dynamic-print-page-style');
       if (styleEl) styleEl.remove();
     };
