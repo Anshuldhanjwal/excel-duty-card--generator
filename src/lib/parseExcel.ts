@@ -123,6 +123,8 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   // Clean eventName and district across all generated outputs
   result.eventName = cleanEventName(result.eventName);
   result.district = result.district.replace(/जनपद/g, '').replace(/[-—–\s]+/g, '').trim();
+  result.dutyDateFrom = (result.dutyDateFrom || '').replace(/[-/]/g, '.');
+  result.dutyDateTo = (result.dutyDateTo || '').replace(/[-/]/g, '.');
 
   return result;
 }
