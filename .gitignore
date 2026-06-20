@@ -43,3 +43,6 @@ next-env.d.ts
 # scratch and logs
 /scratch/
 free_models.json
+*.xlsx
+inspect_xlsx.js
+

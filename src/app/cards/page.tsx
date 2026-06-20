@@ -6,6 +6,46 @@ import { ExtractionResult, OfficerRecord } from '../../types';
 import { DutyCard } from '../../components/DutyCard';
 import { EditCardModal } from '../../components/EditCardModal';
 
+import { krutidevToUnicode } from '../../lib/krutidevToUnicode';
+
+function cleanAndConvert(val: any): string {
+  const str = String(val === null || val === undefined ? '' : val).trim();
+  if (!str) return '';
+  if (/[\u0900-\u097F]/.test(str)) {
+    return str;
+  }
+  if (/[a-zA-Z]/.test(str)) {
+    return krutidevToUnicode(str);
+  }
+  return str;
+}
+
+function convertResult(res: ExtractionResult): ExtractionResult {
+  return {
+    eventName: cleanAndConvert(res.eventName),
+    district: cleanAndConvert(res.district),
+    dutyDateFrom: cleanAndConvert(res.dutyDateFrom),
+    dutyDateTo: cleanAndConvert(res.dutyDateTo),
+    records: (res.records || []).map(r => ({
+      ...r,
+      dutyType: cleanAndConvert(r.dutyType),
+      mainOfficerName: cleanAndConvert(r.mainOfficerName),
+      mainOfficerMobile: cleanAndConvert(r.mainOfficerMobile),
+      supportingOfficers: (r.supportingOfficers || []).map(s => ({
+        name: cleanAndConvert(s.name),
+        mobile: cleanAndConvert(s.mobile)
+      })),
+      dutyPlace: cleanAndConvert(r.dutyPlace),
+      thanaArea: cleanAndConvert(r.thanaArea),
+      dutyTime: cleanAndConvert(r.dutyTime),
+      zonalMagistrate: cleanAndConvert(r.zonalMagistrate),
+      zonalPoliceOfficer: cleanAndConvert(r.zonalPoliceOfficer),
+      sectorMagistrate: cleanAndConvert(r.sectorMagistrate),
+      sectorPoliceOfficer: cleanAndConvert(r.sectorPoliceOfficer)
+    }))
+  };
+}
+
 export default function CardsPage() {
   const [data, setData] = useState<ExtractionResult | null>(null);
   const [editingRecord, setEditingRecord] = useState<OfficerRecord | null>(null);
@@ -17,12 +57,17 @@ export default function CardsPage() {
     const saved = localStorage.getItem('duty_cards_result');
     if (saved) {
       try {
-        setData(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const converted = convertResult(parsed);
+        setData(converted);
+        // Save back the converted Unicode data so it persists in Unicode
+        localStorage.setItem('duty_cards_result', JSON.stringify(converted));
       } catch (err) {
         console.error('Failed to parse saved data:', err);
       }
     }
   }, []);
+
 
   if (!data) {
     return (
