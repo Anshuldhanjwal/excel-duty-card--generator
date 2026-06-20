@@ -126,4 +126,22 @@ body {
     transform-origin: top center !important;
     margin-bottom: -35px !important;
   }
+
+  /* 3 cards per A4 page */
+  body.printing-all.print-layout-a4-triple .card-container-wrapper {
+    page-break-after: auto !important;
+    margin-bottom: 10px !important;
+    page-break-inside: avoid !important;
+  }
+  
+  body.printing-all.print-layout-a4-triple .card-container-wrapper:nth-child(3n) {
+    page-break-after: always !important;
+    margin-bottom: 0 !important;
+  }
+
+  body.printing-all.print-layout-a4-triple .duty-card-container {
+    transform: scale(0.64) !important;
+    transform-origin: top center !important;
+    margin-bottom: -180px !important;
+  }
 }

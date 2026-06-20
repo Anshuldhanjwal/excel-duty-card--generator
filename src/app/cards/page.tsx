@@ -60,7 +60,7 @@ export default function CardsPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [printLayout, setPrintLayout] = useState<'a5' | 'a4'>('a5');
+  const [printLayout, setPrintLayout] = useState<'a5' | 'a4' | 'a4-triple'>('a5');
   const [isPrinting, setIsPrinting] = useState(false);
   
   const cardsPerPage = 50;
@@ -153,9 +153,14 @@ export default function CardsPage() {
       if (printLayout === 'a4') {
         styleEl.innerHTML = `@page { size: A4 portrait; margin: 10mm; }`;
         document.body.classList.add('print-layout-a4-double');
+        document.body.classList.remove('print-layout-a4-triple');
+      } else if (printLayout === 'a4-triple') {
+        styleEl.innerHTML = `@page { size: A4 portrait; margin: 8mm; }`;
+        document.body.classList.add('print-layout-a4-triple');
+        document.body.classList.remove('print-layout-a4-double');
       } else {
         styleEl.innerHTML = `@page { size: A5 landscape; margin: 8mm; }`;
-        document.body.classList.remove('print-layout-a4-double');
+        document.body.classList.remove('print-layout-a4-double', 'print-layout-a4-triple');
       }
 
       document.body.classList.remove('printing-single');
@@ -187,7 +192,7 @@ export default function CardsPage() {
       target.classList.add('printing-now');
     }
 
-    document.body.classList.remove('printing-all', 'print-layout-a4-double');
+    document.body.classList.remove('printing-all', 'print-layout-a4-double', 'print-layout-a4-triple');
     document.body.classList.add('printing-single');
     
     setTimeout(() => {
@@ -227,11 +232,12 @@ export default function CardsPage() {
               <span className="text-xs text-slate-400 font-semibold uppercase">प्रिंट लेआउट:</span>
               <select
                 value={printLayout}
-                onChange={(e) => setPrintLayout(e.target.value as 'a5' | 'a4')}
+                onChange={(e) => setPrintLayout(e.target.value as 'a5' | 'a4' | 'a4-triple')}
                 className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
               >
                 <option value="a5" className="bg-slate-950 text-white">1 कार्ड/पेज (A5 Landscape)</option>
                 <option value="a4" className="bg-slate-950 text-white">2 कार्ड/पेज (A4 Portrait)</option>
+                <option value="a4-triple" className="bg-slate-950 text-white">3 कार्ड/पेज (A4 Portrait)</option>
               </select>
             </div>
             
