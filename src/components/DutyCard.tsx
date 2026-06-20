@@ -47,46 +47,33 @@ export const DutyCard: React.FC<DutyCardProps> = ({
         <tbody>
 
           {/* ============================================ */}
-          {/* HEADER ROW 1: Title text (A-C merged) + Logo (D) */}
+          {/* HEADER ROW: Title text (A-C merged) + Logo (D) */}
           {/* ============================================ */}
           <tr>
             <td
               colSpan={3}
-              className="text-center px-4 pt-4 pb-2 align-middle"
-              style={{ borderBottom: 'none' }}
+              className="text-center px-4 py-3 align-middle border-r border-b border-black"
             >
-              <div className="text-[26px] font-extrabold leading-tight tracking-wide">
-                {eventName || 'काँवड़ यात्रा—2025'}
+              <div className="text-[25px] font-extrabold leading-tight tracking-wide">
+                {eventName || 'काँवड़ यात्रा-2026'}
               </div>
-              <div className="text-[19px] font-bold leading-tight mt-1">
+              <div className="text-[19px] font-bold leading-tight mt-1.5">
                 ड्यूटी कार्ड जनपद {district || 'बुलन्दशहर'}
+              </div>
+              <div className="text-[17px] font-bold leading-tight mt-1.5">
+                ड्यूटी दिनांक {dutyDateFrom || '01.0.2026'}{dutyDateTo && dutyDateTo !== dutyDateFrom ? ` से ${dutyDateTo} तक` : ''}
               </div>
             </td>
             <td
-              rowSpan={2}
-              className="text-center align-middle border-l border-black p-2"
+              className="text-center align-middle border-b border-black p-2"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/up_police_logo.png"
                 alt="UP Police Logo"
                 className="mx-auto"
-                style={{ width: '130px', height: 'auto' }}
+                style={{ width: '115px', height: 'auto' }}
               />
-            </td>
-          </tr>
-
-          {/* ============================================ */}
-          {/* HEADER ROW 2: Duty date (A-C merged) */}
-          {/* ============================================ */}
-          <tr>
-            <td
-              colSpan={3}
-              className="text-center px-4 py-2 align-middle border-t border-b border-black"
-            >
-              <div className="text-[17px] font-bold leading-tight">
-                ड्यूटी दिनांक {dutyDateFrom || '11.07.2025'}{dutyDateTo && dutyDateTo !== dutyDateFrom ? ` से ${dutyDateTo} तक` : ''}
-              </div>
             </td>
           </tr>
 

@@ -21,6 +21,27 @@ function cleanAndConvert(val: any): string {
 }
 
 /**
+ * Removes administrative suffix text from event name to keep it clean.
+ */
+function cleanEventName(name: string): string {
+  if (!name) return 'ड्यूटी कार्ड';
+  let cleaned = name.trim();
+  
+  // Truncate from keywords
+  cleaned = cleaned.replace(/हेतु.*/g, '');
+  cleaned = cleaned.replace(/के\s+लिए.*/g, '');
+  cleaned = cleaned.replace(/का\s+विवरण.*/g, '');
+  cleaned = cleaned.replace(/बनाये\s+गये.*/g, '');
+  cleaned = cleaned.replace(/बनाए\s+गए.*/g, '');
+  cleaned = cleaned.replace(/जनपद.*/g, '');
+  
+  // Clean up leading/trailing punctuation and spaces
+  cleaned = cleaned.replace(/^[-\s,/—–]+|[-\s,/—–]+$/g, '');
+
+  return cleaned.trim() || 'ड्यूटी कार्ड';
+}
+
+/**
  * Universal Excel parser for Police Duty Card generation.
  * 
  * Automatically detects three formats:
@@ -87,16 +108,23 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
     }
   }
 
+  let result: ExtractionResult;
   if (maxCols >= 9) {
     // ========== FORMAT B: Zonal/Sector (11-col) ==========
-    return parseFormatB(rows, eventName, district, dutyDateFrom, dutyDateTo);
+    result = parseFormatB(rows, eventName, district, dutyDateFrom, dutyDateTo);
   } else if (maxCols >= 6) {
     // ========== FORMAT A: Barrier (7-col) ==========
-    return parseFormatA(rows, eventName, district, dutyDateFrom, dutyDateTo);
+    result = parseFormatA(rows, eventName, district, dutyDateFrom, dutyDateTo);
   } else {
     // ========== FORMAT C: Stacked Card Layout (4-col) ==========
-    return parseFormatC(rows, eventName, district, dutyDateFrom, dutyDateTo);
+    result = parseFormatC(rows, eventName, district, dutyDateFrom, dutyDateTo);
   }
+
+  // Clean eventName and district across all generated outputs
+  result.eventName = cleanEventName(result.eventName);
+  result.district = result.district.replace(/जनपद/g, '').replace(/[-—–\s]+/g, '').trim();
+
+  return result;
 }
 
 // ────────────────────────────────────────────────────────────
