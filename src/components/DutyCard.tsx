@@ -61,13 +61,13 @@ export const DutyCard: React.FC<DutyCardProps> = ({
               className="text-center px-4 py-3 align-middle border-r border-b border-black"
             >
               <div className="text-[25px] font-extrabold leading-tight tracking-wide">
-                {cleanEvent || 'काँवड़ यात्रा-2026'}
+                काँवड़ यात्रा-2026
               </div>
               <div className="text-[19px] font-bold leading-tight mt-1.5">
-                ड्यूटी कार्ड जनपद {cleanDistrict || 'बुलन्दशहर'}
+                ड्यूटी कार्ड जनपद बुलन्दशहर
               </div>
               <div className="text-[17px] font-bold leading-tight mt-1.5">
-                ड्यूटी दिनांक {formattedDateFrom || '01.0.2026'}{formattedDateTo && formattedDateTo !== formattedDateFrom ? ` से ${formattedDateTo} तक` : ''}
+                ड्यूटी दिनांक 01.0.2026 से 13.08.2026 तक
               </div>
             </td>
             <td
