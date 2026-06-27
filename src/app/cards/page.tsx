@@ -39,8 +39,10 @@ function convertResult(res: ExtractionResult): ExtractionResult {
       dutyType: cleanAndConvert(r.dutyType),
       mainOfficerName: cleanAndConvert(r.mainOfficerName),
       mainOfficerMobile: cleanAndConvert(r.mainOfficerMobile),
+      mainOfficerPostingPlace: cleanAndConvert(r.mainOfficerPostingPlace),
       supportingOfficers: (r.supportingOfficers || []).map(s => ({
         name: cleanAndConvert(s.name),
+        postingPlace: cleanAndConvert(s.postingPlace),
         mobile: cleanAndConvert(s.mobile)
       })),
       dutyPlace: cleanAndConvert(r.dutyPlace),

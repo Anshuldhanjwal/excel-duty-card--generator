@@ -1,6 +1,7 @@
 export interface SupportingOfficer {
   name: string;
   mobile: string;
+  postingPlace?: string;     // e.g. "यातायात", "सिकन्दराबाद"
 }
 
 export interface OfficerRecord {
@@ -8,6 +9,7 @@ export interface OfficerRecord {
   dutyType: string;           // e.g. "बैरियर ड्यूटी"
   mainOfficerName: string;    // e.g. "उ0नि0 श्री विजेन्द्र सिंह थाना को0देहात"
   mainOfficerMobile: string;
+  mainOfficerPostingPlace?: string; // e.g. "लीमापुर", "सिकन्दराबाद"
   supportingOfficers: SupportingOfficer[];   // can be 0 to N
   dutyPlace: string;          // e.g. "मामन तिराहा"
   thanaArea: string;          // e.g. "कोतवाली देहात"

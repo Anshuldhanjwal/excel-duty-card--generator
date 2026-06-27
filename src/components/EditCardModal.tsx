@@ -46,7 +46,7 @@ export const EditCardModal: React.FC<EditCardModalProps> = ({
     }));
   };
 
-  const handleSupportingChange = (index: number, field: 'name' | 'mobile', value: string) => {
+  const handleSupportingChange = (index: number, field: 'name' | 'mobile' | 'postingPlace', value: string) => {
     const updatedSupporting = [...editedRecord.supportingOfficers];
     updatedSupporting[index] = {
       ...updatedSupporting[index],
@@ -61,7 +61,7 @@ export const EditCardModal: React.FC<EditCardModalProps> = ({
   const addSupportingOfficer = () => {
     setEditedRecord((prev) => ({
       ...prev,
-      supportingOfficers: [...prev.supportingOfficers, { name: '', mobile: '' }],
+      supportingOfficers: [...prev.supportingOfficers, { name: '', mobile: '', postingPlace: '' }],
     }));
   };
 
@@ -132,6 +132,18 @@ export const EditCardModal: React.FC<EditCardModalProps> = ({
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
+              />
+            </div>
+
+            {/* Main Officer Posting Place */}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">मुख्य अधिकारी नियुक्ति स्थान</label>
+              <input
+                type="text"
+                name="mainOfficerPostingPlace"
+                value={safeInputValue(editedRecord.mainOfficerPostingPlace)}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
@@ -251,16 +263,25 @@ export const EditCardModal: React.FC<EditCardModalProps> = ({
                 {editedRecord.supportingOfficers.map((officer, index) => (
                   <div key={index} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
                     <div className="flex-1">
-                              <input
-                          type="text"
-                          value={safeInputValue(officer.name)}
-                          onChange={(e) => handleSupportingChange(index, 'name', e.target.value)}
-                          placeholder="सहयोगी का पदनाम व नाम (e.g. हे0का0 1395 सुमित कुमार)"
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
-                          required
-                        />
+                      <input
+                        type="text"
+                        value={safeInputValue(officer.name)}
+                        onChange={(e) => handleSupportingChange(index, 'name', e.target.value)}
+                        placeholder="सहयोगी का पदनाम व नाम (e.g. हे0का0 1395 सुमित कुमार)"
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
+                        required
+                      />
                     </div>
-                    <div className="w-[180px]">
+                    <div className="w-[150px]">
+                      <input
+                        type="text"
+                        value={safeInputValue(officer.postingPlace)}
+                        onChange={(e) => handleSupportingChange(index, 'postingPlace', e.target.value)}
+                        placeholder="नियुक्ति स्थान"
+                        className="w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs text-center"
+                      />
+                    </div>
+                    <div className="w-[140px]">
                       <input
                         type="text"
                         value={safeInputValue(officer.mobile)}

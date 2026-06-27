@@ -310,6 +310,7 @@ function parseForDutyCardSheet(rows: any[][], sheetName: string): OfficerRecord[
   interface BlockOfficer {
     name: string;
     mobile: string;
+    postingPlace: string;
   }
 
   interface Block {
@@ -352,28 +353,32 @@ function parseForDutyCardSheet(rows: any[][], sheetName: string): OfficerRecord[
 
       // Add the main officer from this row
       const dayName = String(row[3] || '').trim();
+      const dayPosting = String(row[4] || '').trim();
       const dayMobile = String(row[5] || '').trim();
       if (dayName) {
-        currentBlock.dayOfficers.push({ name: dayName, mobile: dayMobile });
+        currentBlock.dayOfficers.push({ name: dayName, postingPlace: dayPosting, mobile: dayMobile });
       }
 
       const nightName = String(row[8] || '').trim();
+      const nightPosting = String(row[9] || '').trim();
       const nightMobile = String(row[10] || '').trim();
       if (nightName) {
-        currentBlock.nightOfficers.push({ name: nightName, mobile: nightMobile });
+        currentBlock.nightOfficers.push({ name: nightName, postingPlace: nightPosting, mobile: nightMobile });
       }
     } else if (currentBlock) {
       // Sub-row: add supporting officers
       const dayName = String(row[3] || '').trim();
+      const dayPosting = String(row[4] || '').trim();
       const dayMobile = String(row[5] || '').trim();
       if (dayName) {
-        currentBlock.dayOfficers.push({ name: dayName, mobile: dayMobile });
+        currentBlock.dayOfficers.push({ name: dayName, postingPlace: dayPosting, mobile: dayMobile });
       }
 
       const nightName = String(row[8] || '').trim();
+      const nightPosting = String(row[9] || '').trim();
       const nightMobile = String(row[10] || '').trim();
       if (nightName) {
-        currentBlock.nightOfficers.push({ name: nightName, mobile: nightMobile });
+        currentBlock.nightOfficers.push({ name: nightName, postingPlace: nightPosting, mobile: nightMobile });
       }
     }
   }
@@ -385,13 +390,14 @@ function parseForDutyCardSheet(rows: any[][], sheetName: string): OfficerRecord[
       const mainOfficer = block.dayOfficers[i];
       const supporting = block.dayOfficers
         .filter((_, idx) => idx !== i)
-        .map(o => ({ name: o.name, mobile: o.mobile }));
+        .map(o => ({ name: o.name, postingPlace: o.postingPlace, mobile: o.mobile }));
 
       records.push({
         id: `${sheetName}-day-${idCounter++}`,
         dutyType: block.dutyType,
         mainOfficerName: mainOfficer.name,
         mainOfficerMobile: mainOfficer.mobile,
+        mainOfficerPostingPlace: mainOfficer.postingPlace,
         supportingOfficers: supporting,
         dutyPlace: block.dutyPlace,
         thanaArea: block.thanaArea,
@@ -408,13 +414,14 @@ function parseForDutyCardSheet(rows: any[][], sheetName: string): OfficerRecord[
       const mainOfficer = block.nightOfficers[i];
       const supporting = block.nightOfficers
         .filter((_, idx) => idx !== i)
-        .map(o => ({ name: o.name, mobile: o.mobile }));
+        .map(o => ({ name: o.name, postingPlace: o.postingPlace, mobile: o.mobile }));
 
       records.push({
         id: `${sheetName}-night-${idCounter++}`,
         dutyType: block.dutyType,
         mainOfficerName: mainOfficer.name,
         mainOfficerMobile: mainOfficer.mobile,
+        mainOfficerPostingPlace: mainOfficer.postingPlace,
         supportingOfficers: supporting,
         dutyPlace: block.dutyPlace,
         thanaArea: block.thanaArea,
