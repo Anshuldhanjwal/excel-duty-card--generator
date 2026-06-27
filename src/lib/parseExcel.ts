@@ -96,8 +96,8 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
   // Default global metadata
   let eventName = 'काँवड़ यात्रा-2026';
   let district = 'बुलन्दशहर';
-  let dutyDateFrom = '01.0.2026';
-  let dutyDateTo = '13.08.2026';
+  let dutyDateFrom = '05.08.2026';
+  let dutyDateTo = '12.08.2026';
   
   let foundMeta = false;
 
@@ -110,14 +110,6 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
     });
 
     if (rawRows.length === 0) continue;
-
-    // Skip template/sample sheets (e.g., "DUTY CARD 02" with very few rows)
-    const isTemplateSheet = rawRows.length <= 25 && (
-      sheetName.toLowerCase().includes('duty card') ||
-      sheetName.toLowerCase().includes('template') ||
-      sheetName.toLowerCase().includes('sample')
-    );
-    if (isTemplateSheet) continue;
 
     // Convert the entire sheet to Unicode first (translating Krutidev where appropriate)
     const rows = rawRows.map(row => row.map(cleanAndConvert));
@@ -156,6 +148,14 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
         }
       }
     }
+
+    // Skip template/sample sheets (e.g., "DUTY CARD 02" with very few rows) from card records generation
+    const isTemplateSheet = rawRows.length <= 25 && (
+      sheetName.toLowerCase().includes('duty card') ||
+      sheetName.toLowerCase().includes('template') ||
+      sheetName.toLowerCase().includes('sample')
+    );
+    if (isTemplateSheet) continue;
 
     // Dynamically parse the sheet based on detected layout
     const sheetRecords = parseSheetRows(rows, sheetName);
