@@ -111,6 +111,14 @@ export async function parseExcelFile(file: File): Promise<ExtractionResult> {
 
     if (rawRows.length === 0) continue;
 
+    // Skip template/sample sheets (e.g., "DUTY CARD 02" with very few rows)
+    const isTemplateSheet = rawRows.length <= 25 && (
+      sheetName.toLowerCase().includes('duty card') ||
+      sheetName.toLowerCase().includes('template') ||
+      sheetName.toLowerCase().includes('sample')
+    );
+    if (isTemplateSheet) continue;
+
     // Convert the entire sheet to Unicode first (translating Krutidev where appropriate)
     const rows = rawRows.map(row => row.map(cleanAndConvert));
 
@@ -170,6 +178,26 @@ function parseSheetRows(rows: any[][], sheetName: string): OfficerRecord[] {
   const maxCols = Math.max(...rows.map(r => r.length));
   if (maxCols === 0) return [];
 
+  // 0. Detect "FOR DUTY CARD" 13-column format (Type 0)
+  // This format has 13 columns with day shift (cols 3-5) and night shift (cols 8-10)
+  // separated by zonal/sector officer columns (6-7, 11-12).
+  // Detection: header row has serial number label in col 0, and both day time header
+  // in col 3 and night time header in col 8, with >=13 columns.
+  if (maxCols >= 13) {
+    for (let r = 0; r < Math.min(3, rows.length); r++) {
+      const row = rows[r];
+      const col0 = String(row[0] || '').toLowerCase();
+      const col3 = String(row[3] || '').toLowerCase();
+      const col8 = String(row[8] || '').toLowerCase();
+      // Check for day/night time headers in the correct columns
+      const hasDayHeader = col3.includes('izkr%') || col3.includes('08') || col3.includes('प्रातः') || col3.includes('सुबह');
+      const hasNightHeader = col8.includes('jk=h') || col8.includes('jk=') || col8.includes('20') || col8.includes('रात्रि') || col8.includes('रात');
+      if (hasDayHeader && hasNightHeader) {
+        return parseForDutyCardSheet(rows, sheetName);
+      }
+    }
+  }
+
   // 1. Detect Day/Night split layout (Type 1)
   let hasDay = false;
   let hasNight = false;
@@ -203,6 +231,203 @@ function parseSheetRows(rows: any[][], sheetName: string): OfficerRecord[] {
 
   // 3. Fallback to Simple List layout (Type 3)
   return parseSimpleListSheet(rows, sheetName);
+}
+
+/**
+ * Type 0: "FOR DUTY CARD" 13-Column Format Parser
+ *
+ * Structure:
+ *   Col 0: Serial number
+ *   Col 1: Duty place + Thana (e.g., "शिकारपुर तिराहा बाइपास थाना कोतवाली नगर")
+ *   Col 2: Duty type
+ *   Cols 3-5: Day shift officer name, posting place, mobile
+ *   Col 6: Zonal officer (day)
+ *   Col 7: Sector officer (day)
+ *   Cols 8-10: Night shift officer name, posting place, mobile
+ *   Col 11: Zonal officer (night)
+ *   Col 12: Sector officer (night)
+ *
+ * Each block (serial number) has a main row + sub-rows of supporting officers.
+ * For each block and each shift, we generate ONE CARD PER OFFICER where:
+ *   - That officer is the "main" officer
+ *   - All other officers in the same shift become "supporting"
+ */
+function parseForDutyCardSheet(rows: any[][], sheetName: string): OfficerRecord[] {
+  const records: OfficerRecord[] = [];
+  let idCounter = 0;
+
+  // Find the header row (contains serial number label like "dz0la0" or "क्र0सं0")
+  let headerRowIdx = -1;
+  for (let r = 0; r < Math.min(5, rows.length); r++) {
+    const col0 = String(rows[r][0] || '').toLowerCase();
+    if (col0.includes('dz') || col0.includes('क्र') || col0.includes('सं')) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+
+  // Extract time labels from the header row
+  let dayTime = 'प्रातः 08 बजे से रात्रि 20:00 बजे तक';
+  let nightTime = 'रात्री 20:00 बजे से प्रातः 08:00 बजे तक';
+  if (headerRowIdx !== -1) {
+    const hRow = rows[headerRowIdx];
+    const dayHeader = String(hRow[3] || '').trim();
+    const nightHeader = String(hRow[8] || '').trim();
+    if (dayHeader) dayTime = dayHeader;
+    if (nightHeader) nightTime = nightHeader;
+  }
+
+  // Find first data row (row with a numeric serial number in col 0)
+  let dataStartRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
+  // Skip sub-header rows (e.g., column label row with "uke" / "eks0ua0")
+  for (let r = dataStartRow; r < rows.length; r++) {
+    const val = rows[r][0];
+    const valStr = String(val || '').trim();
+    if (/^\d+$/.test(valStr)) {
+      dataStartRow = r;
+      break;
+    }
+  }
+
+  // Helper: split duty place text into place and thana
+  function splitPlaceAndThana(raw: string): { place: string; thana: string } {
+    // Look for "थाना" or Krutidev "Fkkuk" to split
+    let place = raw;
+    let thana = '';
+    const thanaPatterns = [/\s*थाना\s+/i, /\s*Fkkuk\s+/i];
+    for (const pat of thanaPatterns) {
+      const idx = raw.search(pat);
+      if (idx !== -1) {
+        place = raw.substring(0, idx).trim();
+        thana = raw.substring(idx).replace(/^\s*(थाना|Fkkuk)\s*/i, '').trim();
+        break;
+      }
+    }
+    return { place: place || raw, thana };
+  }
+
+  // Collect blocks: each block starts with a serial number row
+  interface BlockOfficer {
+    name: string;
+    mobile: string;
+  }
+
+  interface Block {
+    dutyPlace: string;
+    thanaArea: string;
+    dutyType: string;
+    dayOfficers: BlockOfficer[];
+    nightOfficers: BlockOfficer[];
+    dayZonalOfficer: string;
+    daySectorOfficer: string;
+    nightZonalOfficer: string;
+    nightSectorOfficer: string;
+  }
+
+  const blocks: Block[] = [];
+  let currentBlock: Block | null = null;
+
+  for (let r = dataStartRow; r < rows.length; r++) {
+    const row = rows[r];
+    const col0 = String(row[0] || '').trim();
+    const isSerialNumber = /^\d+$/.test(col0);
+
+    if (isSerialNumber) {
+      // Start a new block
+      const rawPlace = String(row[1] || '').trim();
+      const { place, thana } = splitPlaceAndThana(rawPlace);
+
+      currentBlock = {
+        dutyPlace: place,
+        thanaArea: thana,
+        dutyType: String(row[2] || '').trim(),
+        dayOfficers: [],
+        nightOfficers: [],
+        dayZonalOfficer: String(row[6] || '').trim(),
+        daySectorOfficer: String(row[7] || '').trim(),
+        nightZonalOfficer: String(row[11] || '').trim(),
+        nightSectorOfficer: String(row[12] || '').trim(),
+      };
+      blocks.push(currentBlock);
+
+      // Add the main officer from this row
+      const dayName = String(row[3] || '').trim();
+      const dayMobile = String(row[5] || '').trim();
+      if (dayName) {
+        currentBlock.dayOfficers.push({ name: dayName, mobile: dayMobile });
+      }
+
+      const nightName = String(row[8] || '').trim();
+      const nightMobile = String(row[10] || '').trim();
+      if (nightName) {
+        currentBlock.nightOfficers.push({ name: nightName, mobile: nightMobile });
+      }
+    } else if (currentBlock) {
+      // Sub-row: add supporting officers
+      const dayName = String(row[3] || '').trim();
+      const dayMobile = String(row[5] || '').trim();
+      if (dayName) {
+        currentBlock.dayOfficers.push({ name: dayName, mobile: dayMobile });
+      }
+
+      const nightName = String(row[8] || '').trim();
+      const nightMobile = String(row[10] || '').trim();
+      if (nightName) {
+        currentBlock.nightOfficers.push({ name: nightName, mobile: nightMobile });
+      }
+    }
+  }
+
+  // Now generate individual cards from blocks
+  for (const block of blocks) {
+    // Generate day shift cards (one per officer)
+    for (let i = 0; i < block.dayOfficers.length; i++) {
+      const mainOfficer = block.dayOfficers[i];
+      const supporting = block.dayOfficers
+        .filter((_, idx) => idx !== i)
+        .map(o => ({ name: o.name, mobile: o.mobile }));
+
+      records.push({
+        id: `${sheetName}-day-${idCounter++}`,
+        dutyType: block.dutyType,
+        mainOfficerName: mainOfficer.name,
+        mainOfficerMobile: mainOfficer.mobile,
+        supportingOfficers: supporting,
+        dutyPlace: block.dutyPlace,
+        thanaArea: block.thanaArea,
+        dutyTime: dayTime,
+        zonalMagistrate: block.dayZonalOfficer,
+        zonalPoliceOfficer: block.dayZonalOfficer,
+        sectorMagistrate: '',
+        sectorPoliceOfficer: block.daySectorOfficer,
+      });
+    }
+
+    // Generate night shift cards (one per officer)
+    for (let i = 0; i < block.nightOfficers.length; i++) {
+      const mainOfficer = block.nightOfficers[i];
+      const supporting = block.nightOfficers
+        .filter((_, idx) => idx !== i)
+        .map(o => ({ name: o.name, mobile: o.mobile }));
+
+      records.push({
+        id: `${sheetName}-night-${idCounter++}`,
+        dutyType: block.dutyType,
+        mainOfficerName: mainOfficer.name,
+        mainOfficerMobile: mainOfficer.mobile,
+        supportingOfficers: supporting,
+        dutyPlace: block.dutyPlace,
+        thanaArea: block.thanaArea,
+        dutyTime: nightTime,
+        zonalMagistrate: block.nightZonalOfficer,
+        zonalPoliceOfficer: block.nightZonalOfficer,
+        sectorMagistrate: '',
+        sectorPoliceOfficer: block.nightSectorOfficer,
+      });
+    }
+  }
+
+  return records;
 }
 
 /**
