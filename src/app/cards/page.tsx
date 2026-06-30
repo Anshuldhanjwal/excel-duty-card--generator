@@ -154,13 +154,13 @@ export default function CardsPage() {
     container.style.display = 'block';
     container.style.position = 'absolute';
     container.style.left = '-9999px';
-    container.style.width = '200mm'; // A4 width (210mm) minus 5mm margins each side
+    container.style.width = '202mm'; // A4 width (210mm) minus 4mm margins each side
     container.style.visibility = 'hidden';
 
     // Create a temporary ruler to accurately convert mm to px at the current DPI
-    // Target height = (297mm page - 10mm margins) / 2 cards - 4mm padding = 139.5mm
+    // Target height = (297mm page - 8mm margins) / 2 cards - 2mm padding = 142.5mm
     const ruler = document.createElement('div');
-    ruler.style.cssText = 'position:absolute;visibility:hidden;height:139.5mm;';
+    ruler.style.cssText = 'position:absolute;visibility:hidden;height:142.5mm;';
     document.body.appendChild(ruler);
     const targetHeightPx = ruler.offsetHeight;
     document.body.removeChild(ruler);
@@ -169,11 +169,15 @@ export default function CardsPage() {
     const cards = container.querySelectorAll('.duty-card-container') as NodeListOf<HTMLElement>;
     cards.forEach(card => {
       card.style.zoom = '';
+      card.style.height = '';
       card.style.maxWidth = '100%';
       const naturalHeight = card.scrollHeight;
       if (naturalHeight > targetHeightPx) {
         const scale = targetHeightPx / naturalHeight;
         card.style.zoom = String(Math.min(scale, 1));
+      } else {
+        // If it's shorter, stretch it to fill the target height!
+        card.style.height = '142.5mm';
       }
     });
 
@@ -201,7 +205,7 @@ export default function CardsPage() {
       document.body.classList.add('printing-all');
 
       if (printLayout === 'a4') {
-        styleEl.innerHTML = `@page { size: A4 portrait; margin: 5mm; }`;
+        styleEl.innerHTML = `@page { size: A4 portrait; margin: 4mm; }`;
         document.body.classList.add('print-layout-a4-double');
         document.body.classList.remove('print-layout-a4-triple');
 
