@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ExtractionResult, OfficerRecord } from '../../types';
 import { DutyCard } from '../../components/DutyCard';
@@ -64,6 +64,7 @@ export default function CardsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [printLayout, setPrintLayout] = useState<'a5' | 'a4' | 'a4-triple'>('a5');
   const [isPrinting, setIsPrinting] = useState(false);
+  const printContainerRef = useRef<HTMLDivElement>(null);
   
   const cardsPerPage = 50;
   const router = useRouter();
@@ -89,6 +90,10 @@ export default function CardsPage() {
 
   useEffect(() => {
     const handleAfterPrint = () => {
+      // Reset zoom on all cards before removing from DOM
+      document.querySelectorAll('.duty-card-container').forEach(el => {
+        (el as HTMLElement).style.zoom = '';
+      });
       setIsPrinting(false);
       document.body.classList.remove('printing-all', 'printing-single', 'print-layout-a4-double', 'print-layout-a4-triple');
       const styleEl = document.getElementById('dynamic-print-page-style');
@@ -140,6 +145,46 @@ export default function CardsPage() {
     }
   };
 
+  // Scale each duty card to fit exactly in half an A4 page (portrait)
+  const scaleCardsForA4 = () => {
+    const container = printContainerRef.current;
+    if (!container) return;
+
+    // Temporarily make the print container measurable (it's display:none on screen)
+    container.style.display = 'block';
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.width = '200mm'; // A4 width (210mm) minus 5mm margins each side
+    container.style.visibility = 'hidden';
+
+    // Create a temporary ruler to accurately convert mm to px at the current DPI
+    // Target height = (297mm page - 10mm margins) / 2 cards - 4mm padding = 139.5mm
+    const ruler = document.createElement('div');
+    ruler.style.cssText = 'position:absolute;visibility:hidden;height:139.5mm;';
+    document.body.appendChild(ruler);
+    const targetHeightPx = ruler.offsetHeight;
+    document.body.removeChild(ruler);
+
+    // Measure and scale each card
+    const cards = container.querySelectorAll('.duty-card-container') as NodeListOf<HTMLElement>;
+    cards.forEach(card => {
+      card.style.zoom = '';
+      card.style.maxWidth = '100%';
+      const naturalHeight = card.scrollHeight;
+      if (naturalHeight > targetHeightPx) {
+        const scale = targetHeightPx / naturalHeight;
+        card.style.zoom = String(Math.min(scale, 1));
+      }
+    });
+
+    // Reset container — print media CSS will handle visibility
+    container.style.display = '';
+    container.style.position = '';
+    container.style.left = '';
+    container.style.width = '';
+    container.style.visibility = '';
+  };
+
   const handlePrintAll = () => {
     setIsPrinting(true);
     // Let the DOM update with all cards before calling print dialog
@@ -151,26 +196,30 @@ export default function CardsPage() {
         styleEl.id = styleId;
         document.head.appendChild(styleEl);
       }
-      
+
+      document.body.classList.remove('printing-single');
+      document.body.classList.add('printing-all');
+
       if (printLayout === 'a4') {
-        styleEl.innerHTML = `@page { size: A4 portrait; margin: 10mm; }`;
+        styleEl.innerHTML = `@page { size: A4 portrait; margin: 5mm; }`;
         document.body.classList.add('print-layout-a4-double');
         document.body.classList.remove('print-layout-a4-triple');
+
+        // Measure cards and apply zoom scaling, then print
+        requestAnimationFrame(() => {
+          scaleCardsForA4();
+          setTimeout(() => window.print(), 200);
+        });
       } else if (printLayout === 'a4-triple') {
         styleEl.innerHTML = `@page { size: A4 portrait; margin: 8mm; }`;
         document.body.classList.add('print-layout-a4-triple');
         document.body.classList.remove('print-layout-a4-double');
+        setTimeout(() => window.print(), 150);
       } else {
         styleEl.innerHTML = `@page { size: A5 landscape; margin: 8mm; }`;
         document.body.classList.remove('print-layout-a4-double', 'print-layout-a4-triple');
+        setTimeout(() => window.print(), 150);
       }
-
-      document.body.classList.remove('printing-single');
-      document.body.classList.add('printing-all');
-      
-      setTimeout(() => {
-        window.print();
-      }, 150);
     }, 300);
   };
 
@@ -375,7 +424,7 @@ export default function CardsPage() {
 
       {/* PRINT-ONLY CONTAINER (Renders all cards on demand during window print, completely hidden on screen) */}
       {isPrinting && (
-        <div className="hidden print:block print:space-y-0">
+        <div ref={printContainerRef} className="hidden print:block print:space-y-0">
           {filteredRecords.map((record) => (
             <div
               key={record.id}
