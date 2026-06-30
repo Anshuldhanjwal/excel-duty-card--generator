@@ -148,6 +148,98 @@ body {
     box-shadow: none !important;
   }
 
+  /* Print absolute typography and padding overrides to fill cell spaces */
+  body.printing-all.print-layout-a4-double .duty-card-container table {
+    height: 100% !important;
+    width: 100% !important;
+  }
+
+  body.printing-all.print-layout-a4-double .duty-card-container td {
+    padding: 3mm 2.5mm !important;
+    font-size: 16pt !important;
+    line-height: 1.25 !important;
+    border-color: #000 !important;
+  }
+
+  /* Specific padding/font size overrides for headers and titles */
+  body.printing-all.print-layout-a4-double .duty-card-container tr:first-child td {
+    padding: 5mm 3mm !important;
+  }
+  
+  body.printing-all.print-layout-a4-double .duty-card-container .event-title-text {
+    font-size: 27pt !important;
+    font-weight: 800 !important;
+  }
+  
+  body.printing-all.print-layout-a4-double .duty-card-container .district-title-text {
+    font-size: 21pt !important;
+  }
+  
+  body.printing-all.print-layout-a4-double .duty-card-container .date-title-text {
+    font-size: 18pt !important;
+  }
+
+  body.printing-all.print-layout-a4-double .duty-card-container .up-police-logo-img {
+    width: 110px !important;
+    height: auto !important;
+  }
+
+  /* Main table column headers */
+  body.printing-all.print-layout-a4-double .duty-card-container .card-header-cell {
+    font-size: 16.5pt !important;
+    font-weight: bold !important;
+  }
+
+  /* Supporting staff section header row */
+  body.printing-all.print-layout-a4-double .duty-card-container .supporting-header-cell {
+    font-size: 15pt !important;
+    font-weight: bold !important;
+  }
+
+  /* Main officer name (Bold, very large) */
+  body.printing-all.print-layout-a4-double .duty-card-container .main-officer-name-cell {
+    font-size: 20pt !important;
+    font-weight: bold !important;
+  }
+
+  /* Supporting officer names (Unbold, large) */
+  body.printing-all.print-layout-a4-double .duty-card-container .supporting-officer-name-cell {
+    font-size: 17.5pt !important;
+    font-weight: normal !important;
+  }
+
+  /* All detail value cells (Unbold) */
+  body.printing-all.print-layout-a4-double .duty-card-container .duty-type-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .posting-place-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .mobile-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .duty-place-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .thana-area-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .duty-time-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .zonal-magistrate-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .zonal-police-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .sector-magistrate-value-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .sector-police-value-cell {
+    font-size: 16.5pt !important;
+    font-weight: normal !important;
+  }
+
+  /* Zonal/Sector labels (Bold) */
+  body.printing-all.print-layout-a4-double .duty-card-container .duty-place-label-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .thana-area-label-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .duty-time-label-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .zonal-officer-label-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .sector-magistrate-label-cell,
+  body.printing-all.print-layout-a4-double .duty-card-container .sector-officer-label-cell {
+    font-size: 15pt !important;
+    font-weight: bold !important;
+  }
+
+  /* Card footer cell overrides */
+  body.printing-all.print-layout-a4-double .duty-card-container .card-footer-cell span {
+    font-size: 17pt !important;
+    font-weight: bold !important;
+  }
+
   /* 3 cards per A4 page */
   body.printing-all.print-layout-a4-triple .card-container-wrapper {
     page-break-after: auto !important;
