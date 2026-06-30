@@ -154,13 +154,13 @@ export default function CardsPage() {
     container.style.display = 'block';
     container.style.position = 'absolute';
     container.style.left = '-9999px';
-    container.style.width = '202mm'; // A4 width (210mm) minus 4mm margins each side
+    container.style.width = '200mm'; // A4 width (210mm) minus 5mm margins each side
     container.style.visibility = 'hidden';
 
     // Create a temporary ruler to accurately convert mm to px at the current DPI
-    // Target height = (297mm page - 8mm margins) / 2 cards - 2mm padding = 142.5mm
+    // Target height = 141mm (half of A4 printable area)
     const ruler = document.createElement('div');
-    ruler.style.cssText = 'position:absolute;visibility:hidden;height:142.5mm;';
+    ruler.style.cssText = 'position:absolute;visibility:hidden;height:141mm;';
     document.body.appendChild(ruler);
     const targetHeightPx = ruler.offsetHeight;
     document.body.removeChild(ruler);
@@ -177,7 +177,7 @@ export default function CardsPage() {
         card.style.zoom = String(Math.min(scale, 1));
       } else {
         // If it's shorter, stretch it to fill the target height!
-        card.style.height = '142.5mm';
+        card.style.height = '141mm';
       }
     });
 
@@ -205,7 +205,7 @@ export default function CardsPage() {
       document.body.classList.add('printing-all');
 
       if (printLayout === 'a4') {
-        styleEl.innerHTML = `@page { size: A4 portrait; margin: 4mm; }`;
+        styleEl.innerHTML = `@page { size: A4 portrait; margin: 5mm; }`;
         document.body.classList.add('print-layout-a4-double');
         document.body.classList.remove('print-layout-a4-triple');
 

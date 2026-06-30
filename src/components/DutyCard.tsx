@@ -61,13 +61,13 @@ export const DutyCard: React.FC<DutyCardProps> = ({
               colSpan={4}
               className="text-center px-3 py-2.5 align-middle border-r border-b border-black"
             >
-              <div className="text-[29px] font-extrabold leading-tight tracking-wide">
+              <div className="text-[30px] font-extrabold leading-tight tracking-wide">
                 {cleanEvent || 'काँवड़ यात्रा-2026'}
               </div>
-              <div className="text-[23px] font-bold leading-tight mt-1">
+              <div className="text-[24px] font-bold leading-tight mt-1">
                 ड्यूटी कार्ड जनपद {cleanDistrict || 'बुलन्दशहर'}
               </div>
-              <div className="text-[21px] font-bold leading-tight mt-1">
+              <div className="text-[22px] font-bold leading-tight mt-1">
                 ड्यूटी दिनांक {formattedDateFrom || '05.08.2026'} से {formattedDateTo || '12.08.2026'} तक
               </div>
             </td>
@@ -88,19 +88,19 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* TABLE ROW 1: Column headers (Bold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[19px]">
               ड्यूटी का प्रकार
             </td>
-            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[19px]">
               ड्यूटी अधिकारी/कर्मचारी का नाम
             </td>
-            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[19px]">
               नियुक्ति स्थान
             </td>
-            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 text-center font-bold align-middle text-[19px]">
               मो0नं0
             </td>
-            <td className="border-b border-l-2 border-black px-2 py-2 text-center font-bold align-middle text-[18px]">
+            <td className="border-b border-l-2 border-black px-2 py-2 text-center font-bold align-middle text-[19px]">
               जोनल मजि0 का नाम व मो0नं0
             </td>
           </tr>
@@ -112,26 +112,26 @@ export const DutyCard: React.FC<DutyCardProps> = ({
             {/* Column A: Duty type value (Unbold) */}
             <td
               rowSpan={dutyTypeRowSpan}
-              className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[18px]"
+              className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[19px]"
             >
               {record.dutyType}
             </td>
             {/* Column B: Officer name (Bold for visibility) */}
-            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[20px]">
+            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[22px]">
               {record.mainOfficerName}
             </td>
             {/* Column C: Posting place (Unbold) */}
-            <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[19px]">
               {record.mainOfficerPostingPlace || '\u00A0'}
             </td>
             {/* Column D: Mobile (Unbold) */}
-            <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[19px]">
               {record.mainOfficerMobile}
             </td>
             {/* Column E: Zonal magistrate value (Unbold) */}
             <td
               rowSpan={zonalMagRowSpan}
-              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[18px]"
+              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[19px]"
             >
               {record.zonalMagistrate || '\u00A0'}
             </td>
@@ -141,13 +141,13 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* TABLE ROW 3: Supporting staff sub-headers (Bold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[17px]">
+            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[18px]">
               सहयोगी पुलिसकर्मियों के नाम
             </td>
-            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[17px]">
+            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[18px]">
               नियुक्ति स्थान
             </td>
-            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[17px]">
+            <td className="border-b border-r border-black px-2 py-1 font-bold text-center align-middle text-[18px]">
               मो0नं0
             </td>
             {/* Column E covered by zonal magistrate rowSpan */}
@@ -161,20 +161,20 @@ export const DutyCard: React.FC<DutyCardProps> = ({
             return (
               <tr key={index}>
                 {/* Column B: Supporting Officer Name (Unbold as requested) */}
-                <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[18px]">
+                <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[19px]">
                   {officer.name || '\u00A0'}
                 </td>
                 {/* Column C: Posting Place (Unbold) */}
-                <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[18px]">
+                <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[19px]">
                   {officer.postingPlace || '\u00A0'}
                 </td>
                 {/* Column D: Mobile (Unbold) */}
-                <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[18px]">
+                <td className="border-b border-r border-black px-2 py-2 font-normal text-center align-middle text-[19px]">
                   {officer.mobile || '\u00A0'}
                 </td>
                 {/* Column E: Only the LAST supporting row gets a new E cell */}
                 {isLast && (
-                  <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[16px]">
+                  <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[17px]">
                     जोनल पुलिस अधिकारी नाम व मो0नं0
                   </td>
                 )}
@@ -187,7 +187,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* ड्यूटी का स्थान — Label row (Bold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[19px]">
               ड्यूटी का स्थान
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
@@ -196,7 +196,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
             {/* Column E: Zonal police officer value (Unbold) */}
             <td
               rowSpan={2}
-              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[18px]"
+              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[19px]"
             >
               {record.zonalPoliceOfficer || '\u00A0'}
             </td>
@@ -206,7 +206,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* ड्यूटी का स्थान — Value row (Unbold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[19px]">
               {record.dutyPlace}
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
@@ -218,14 +218,14 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* थाना क्षेत्र — Label row (Bold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[19px]">
               थाना क्षेत्र
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             {/* Column E: Sector magistrate LABEL (Bold) */}
-            <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[16px]">
+            <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[17px]">
               सेक्टर मजि0 का नाम व मो0नं0
             </td>
           </tr>
@@ -234,7 +234,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* थाना क्षेत्र — Value row (Unbold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[19px]">
               {record.thanaArea}
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
@@ -243,7 +243,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
             {/* Column E: Sector magistrate value (Unbold) */}
             <td
               rowSpan={2}
-              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[18px]"
+              className="border-b border-l-2 border-black px-3 py-2 font-normal text-center align-middle text-[19px]"
             >
               {record.sectorMagistrate || '\u00A0'}
             </td>
@@ -253,7 +253,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* ड्यूटी का समय — Label row (Bold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[18px]">
+            <td className="border-b border-r border-black px-2 py-2 font-bold align-middle text-[19px]">
               ड्यूटी का समय
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
@@ -265,14 +265,14 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* ड्यूटी का समय — Value row (Unbold) */}
           {/* ============================================ */}
           <tr>
-            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[18px] leading-snug">
+            <td className="border-b border-r border-black px-2 py-2 font-normal align-middle text-[19px] leading-snug">
               {record.dutyTime}
             </td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-2">{'\u00A0'}</td>
             {/* Column E: Sector police officer LABEL (Bold) */}
-            <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[16px]">
+            <td className="border-b border-l-2 border-black px-2 py-2 text-center align-middle font-bold text-[17px]">
               सेक्टर पुलिस अधिकारी का नाम/मो0नं0
             </td>
           </tr>
@@ -285,7 +285,7 @@ export const DutyCard: React.FC<DutyCardProps> = ({
             <td className="border-b border-r border-black px-2 py-3">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-3">{'\u00A0'}</td>
             <td className="border-b border-r border-black px-2 py-3">{'\u00A0'}</td>
-            <td className="border-b border-l-2 border-black px-3 py-3 font-normal text-center align-middle text-[18px]">
+            <td className="border-b border-l-2 border-black px-3 py-3 font-normal text-center align-middle text-[19px]">
               {record.sectorPoliceOfficer || '\u00A0'}
             </td>
           </tr>
@@ -295,11 +295,11 @@ export const DutyCard: React.FC<DutyCardProps> = ({
           {/* ============================================ */}
           <tr>
             <td colSpan={5} className="px-4 pt-3 pb-2 text-right align-bottom">
-              <span className="font-bold text-[18px] leading-snug">
+              <span className="font-bold text-[19px] leading-snug">
                 वरिष्ठ पुलिस अधीक्षक,
               </span>
               <br />
-              <span className="font-bold text-[18px] leading-snug">
+              <span className="font-bold text-[19px] leading-snug">
                 जनपद—बुलन्दशहर
               </span>
             </td>
